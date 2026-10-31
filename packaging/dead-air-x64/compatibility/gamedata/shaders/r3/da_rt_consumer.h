@@ -11,6 +11,8 @@ uniform float4		da_rt;
 // The traced mirror image of glossy surfaces for combine_1's specular term: linear rgb premultiplied by a,
 // the confidence (0 = the sky's cube).
 Texture2D			s_rt_gloss;
+Texture2D<float4>	s_rt_gi;
+uniform float4		da_rt_gi;
 
 // The traced sun visibility of the render pixel (1 = lit), filtered.
 Texture2D<float>	s_rt_sun;

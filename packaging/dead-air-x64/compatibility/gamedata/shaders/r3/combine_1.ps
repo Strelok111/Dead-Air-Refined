@@ -228,7 +228,10 @@ _out main ( _input I, uint iSample : SV_SAMPLEINDEX )
 		const float3 a = 2.0404f * albedo - 0.3324f;
 		const float3 b = -4.7951f * albedo + 0.6417f;
 		const float3 c = 2.7552f * albedo + 0.6903f;
-		hdiffuse *= max( occ.xxx, ( ( occ * a + b ) * occ + c ) * occ );
+		if ( da_rt_gi.x > 0.5f )
+			hdiffuse = s_rt_gi.Load( int3( I.pos2d.xy, 0 ) ).rgb;
+		else
+			hdiffuse *= max( occ.xxx, ( ( occ * a + b ) * occ + c ) * occ );
 		// The sky's G-buffer holds P = 0: no normalize of a zero vector.
 		const float NdotV = saturate( dot( N.xyz, -P.xyz * rsqrt( max( dot( P.xyz, P.xyz ), 1e-8f ) ) ) );
 		const float roughness = 1.0f - ( da_spec_ggx_on( mtl ) ? da_spec_smoothness( D.w ) : saturate( D.w ) );

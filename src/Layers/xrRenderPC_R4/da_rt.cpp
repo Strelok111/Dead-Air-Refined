@@ -93,6 +93,8 @@ Fvector4 da_rt_constants()
 #endif
 }
 
+float da_rt_gi_constant() { return da_rt_live(RtEffect::GI) ? 1.f : 0.f; }
+
 bool da_rt_wants_scene_grab() { return da_rt_live(RtEffect::Reflections); }
 
 bool da_rt_skip_static_casters() { return da_rt_live(RtEffect::Shadows); }

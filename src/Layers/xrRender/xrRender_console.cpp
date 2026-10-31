@@ -608,6 +608,7 @@ float ps_r__offload_warmup = 30.f;
 int ps_r__rt_reflections = 0;
 int ps_r__rt_shadows = 0;
 int ps_r__rtao = 0;
+int ps_r__rtgi = 1;
 u32 ps_r__rt_quality = 1;
 const xr_token qrt_quality_token[] =
 {
@@ -2483,6 +2484,7 @@ void xrRender_initconsole()
     CMD4(CCC_Integer, "r__rt_reflections", &ps_r__rt_reflections, 0, 1);
     CMD4(CCC_Integer, "r__rt_shadows", &ps_r__rt_shadows, 0, 1);
     CMD4(CCC_Integer, "r__rtao", &ps_r__rtao, 0, 1);
+    CMD4(CCC_Integer, "r__rtgi", &ps_r__rtgi, 0, 1);
     CMD3(CCC_Token, "r__rt_quality", &ps_r__rt_quality, qrt_quality_token);
     CMD4(CCC_RuntimeInteger, "r__rt_debug", &ps_r__rt_debug, 0, 5);
     // [dx12:rt] end commands

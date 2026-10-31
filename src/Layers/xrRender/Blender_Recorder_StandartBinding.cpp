@@ -1317,6 +1317,11 @@ static class cl_da_rt : public R_constant_setup
 {
     void setup(CBackend& cmd_list, R_constant* C) override { cmd_list.set_c(C, da_rt_constants()); }
 } binder_da_rt;
+
+static class cl_da_rt_gi : public R_constant_setup
+{
+    void setup(CBackend& cmd_list, R_constant* C) override { cmd_list.set_c(C, da_rt_gi_constant(), 0.f, 0.f, 0.f); }
+} binder_da_rt_gi;
 #endif
 
 // Standart constant-binding
@@ -1427,6 +1432,7 @@ void CBlender_Compile::SetMapping()
     r_Constant("da_wm_par1_prev", &binder_da_wm_par1_prev);
     r_Constant("da_wm_info_prev", &binder_da_wm_info_prev);
     r_Constant("da_rt", &binder_da_rt);
+    r_Constant("da_rt_gi", &binder_da_rt_gi);
 #endif
     r_Constant("da_wh_pos0", &binder_da_wh_pos0);
     r_Constant("da_wh_pos1", &binder_da_wh_pos1);
