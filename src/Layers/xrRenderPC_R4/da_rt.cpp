@@ -93,7 +93,16 @@ Fvector4 da_rt_constants()
 #endif
 }
 
-float da_rt_gi_constant() { return da_rt_live(RtEffect::GI) ? 1.f : 0.f; }
+float da_rt_gi_constant()
+{
+#if defined(DA_RT_LANE)
+    // Do not replace hemisphere lighting if this frame's GI dispatch failed or did not run.
+    const DaRtTargets* rt = da_rt_targets();
+    return da_rt_live(RtEffect::GI) && rt && rt->gi_frame == Device.dwFrame ? 1.f : 0.f;
+#else
+    return 0.f;
+#endif
+}
 
 bool da_rt_wants_scene_grab() { return da_rt_live(RtEffect::Reflections); }
 

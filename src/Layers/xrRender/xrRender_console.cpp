@@ -608,7 +608,7 @@ float ps_r__offload_warmup = 30.f;
 int ps_r__rt_reflections = 0;
 int ps_r__rt_shadows = 0;
 int ps_r__rtao = 0;
-int ps_r__rtgi = 1;
+int ps_r__rtgi = 0; // Unfinished RTGI pipeline: opt-in only until validated.
 u32 ps_r__rt_quality = 1;
 const xr_token qrt_quality_token[] =
 {

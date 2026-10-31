@@ -195,7 +195,7 @@ void CRenderTarget::phase_combine()
     }
     GpuTimers.End(dx11GpuTimers::CombineAO);
 
-    // Diffuse indirect illumination is replaced by the multi-bounce world-space GI result.
+    // The RTGI pass is inert until its pipeline is implemented and validated.
     da_rt_gi_pass(RCache);
     // The glossy surfaces' ray traced reflections, which combine_1 reads in place of the sky's cube.
     da_rt_gloss_pass(RCache);

@@ -167,7 +167,7 @@ void da_rt_targets_create(CRenderTarget& target)
         rt->ao_hist[0].create(r2_RT_rt_ao_hist0, rt->ao_width, rt->ao_height, D3DFMT_A16B16G16R16F, 1, uav);
         rt->ao_hist[1].create(r2_RT_rt_ao_hist1, rt->ao_width, rt->ao_height, D3DFMT_A16B16G16R16F, 1, uav);
     }
-    if (ps_r__rtgi)
+    if (ps_r__rtgi && da_rt_pass_ready(RtEffect::GI))
     {
         rt->gi_half = da_rt_tier_of(ps_r__rt_quality).ao_half;
         rt->gi_width = rt->gi_half ? (w + 1) / 2 : w;
