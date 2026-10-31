@@ -517,6 +517,12 @@ const ref_rt* da_rt_gloss_scene_target()
 #endif
 }
 
+void da_rt_gi_pass(CBackend& cmd_list)
+{
+    UNUSED(cmd_list);
+    // RTGI dispatch is not yet integrated. Do not advertise the effect as ready.
+}
+
 void da_rt_gloss_pass(CBackend& cmd_list)
 {
     UNUSED(cmd_list);
