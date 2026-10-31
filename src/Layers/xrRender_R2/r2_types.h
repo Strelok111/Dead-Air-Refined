@@ -149,6 +149,14 @@ static constexpr float r2_hud_depth_limit = 0.02f;
 #define r2_RT_rt_gloss_hist1 "$user$rt_gloss_hist1"
 #define r2_RT_rt_gloss "$user$rt_gloss"
 #define r2_RT_rt_gloss_scene "$user$rt_gloss_scene"
+// Multi-bounce diffuse GI: raw trace, temporal colour/depth histories, denoising and combine output.
+#define r2_RT_rt_gi_raw "$user$rt_gi_raw"
+#define r2_RT_rt_gi_hist0 "$user$rt_gi_hist0"
+#define r2_RT_rt_gi_hist1 "$user$rt_gi_hist1"
+#define r2_RT_rt_gi_depth0 "$user$rt_gi_depth0"
+#define r2_RT_rt_gi_depth1 "$user$rt_gi_depth1"
+#define r2_RT_rt_gi_filter "$user$rt_gi_filter"
+#define r2_RT_rt_gi "$user$rt_gi"
 // [dx12:rt] end names
 
 #define     r2_base             "$user$base"

@@ -690,7 +690,7 @@ bool da_rt_wanted()
         return setting && da_rt_pass_ready(effect) && da_rt_targets_ready(effect);
     };
     return wanted(RtEffect::Reflections, ps_r__rt_reflections) || wanted(RtEffect::Shadows, ps_r__rt_shadows) ||
-        wanted(RtEffect::AO, ps_r__rtao);
+        wanted(RtEffect::AO, ps_r__rtao) || wanted(RtEffect::GI, ps_r__rtgi);
 }
 
 void da_rt_collect()
@@ -2034,8 +2034,8 @@ void da_rt_frame_scene(CBackend& cmd_list)
         return;
     }
 
-    // Moving objects only matter to the occlusion and the reflections; the shadow rays mask them out.
-    const bool track = da_rt_live(RtEffect::AO) || da_rt_live(RtEffect::Reflections);
+    // Moving objects contribute to GI, occlusion and reflections; sun-shadow rays mask them out.
+    const bool track = da_rt_live(RtEffect::AO) || da_rt_live(RtEffect::Reflections) || da_rt_live(RtEffect::GI);
     dx11GpuTimerScope gpu(dx11GpuTimers::RtScene);
     DaRtSection section;
     if (!section)

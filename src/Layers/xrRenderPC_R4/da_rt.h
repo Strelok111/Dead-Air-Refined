@@ -21,6 +21,7 @@ enum class RtEffect : u32
     Reflections,
     Shadows,
     AO,
+    GI,
     Count
 };
 
@@ -47,6 +48,7 @@ u32 da_rt_quality();
 // The `da_rt` shader constant: x reflections, y sun shadows, z AO live this frame (0/1), w quality.
 // Zeros on DX11.
 Fvector4 da_rt_constants();
+float da_rt_gi_constant();
 
 // Level lifetime (r2_loader.cpp): from the end of level_Load the visuals may be walked - there when an
 // effect is on, else on the first frame that wants one (a level played without RT is never walked);
@@ -64,6 +66,7 @@ void da_rt_frame_scene(CBackend& cmd_list); // before async fork A: acceleration
 void da_rt_sun_pass(CBackend& cmd_list);    // before the sun accumulation
 bool da_rt_ao_pass(CBackend& cmd_list);     // the AO slot: true = RTAO ran instead of GTAO/SSAO
 void da_rt_gloss_pass(CBackend& cmd_list);  // after the AO slot, before combine_1: glossy reflections
+void da_rt_gi_pass(CBackend& cmd_list);     // multi-bounce diffuse GI, before combine_1
 // combine_1's third target this frame: its linear colour for the next frame's glossy reflections (null: none).
 const ref_rt* da_rt_gloss_scene_target();
 void da_rt_reflections_pass(CBackend& cmd_list); // after the scene grab, before the puddles

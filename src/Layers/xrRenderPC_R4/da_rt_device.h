@@ -137,6 +137,11 @@ struct DaRtTargets
     ref_rt gloss_raw, gloss_dist, gloss_hist[2], gloss, gloss_scene;
     u32 gloss_width{}, gloss_height{};
     u32 gloss_current{}, gloss_frame{u32(-2)}, gloss_scene_frame{u32(-2)};
+    // Multi-bounce diffuse GI: trace-resolution samples, full-resolution temporal history/depth and denoised output.
+    ref_rt gi_raw, gi_hist[2], gi_hist_depth[2], gi_filter, gi;
+    u32 gi_width{}, gi_height{};
+    u32 gi_current{}, gi_frame{u32(-2)};
+    bool gi_half{};
     // The frame the glossy reflections ran in (combine_1 then reads them).
     u32 gloss_ran{u32(-2)};
     ref_shader s_puddle_req, s_water_req, s_water_req_b;

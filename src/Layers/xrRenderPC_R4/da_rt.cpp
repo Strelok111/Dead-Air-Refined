@@ -28,6 +28,7 @@ bool da_rt_setting(RtEffect effect)
     case RtEffect::Reflections: return ps_r__rt_reflections != 0;
     case RtEffect::Shadows: return ps_r__rt_shadows != 0;
     case RtEffect::AO: return ps_r__rtao != 0;
+    case RtEffect::GI: return ps_r__rtgi != 0;
     default: return false;
     }
 }
@@ -97,7 +98,7 @@ bool da_rt_wants_scene_grab() { return da_rt_live(RtEffect::Reflections); }
 bool da_rt_skip_static_casters() { return da_rt_live(RtEffect::Shadows); }
 
 // The denoisers reproject with the motion vectors.
-bool da_rt_wants_motion() { return da_rt_live(RtEffect::Shadows) || da_rt_live(RtEffect::AO); }
+bool da_rt_wants_motion() { return da_rt_live(RtEffect::Shadows) || da_rt_live(RtEffect::AO) || da_rt_live(RtEffect::GI); }
 
 // Asked when the targets are created (renderer start, vid_restart), where the RTAO setting changes.
 bool da_rt_needs_ao_targets()

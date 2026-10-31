@@ -195,6 +195,8 @@ void CRenderTarget::phase_combine()
     }
     GpuTimers.End(dx11GpuTimers::CombineAO);
 
+    // Diffuse indirect illumination is replaced by the multi-bounce world-space GI result.
+    da_rt_gi_pass(RCache);
     // The glossy surfaces' ray traced reflections, which combine_1 reads in place of the sky's cube.
     da_rt_gloss_pass(RCache);
     // Without them, what the screen shows of the world (r4_rendertarget_phase_ssr.cpp).

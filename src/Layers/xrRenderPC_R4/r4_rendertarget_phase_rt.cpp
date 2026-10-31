@@ -62,6 +62,11 @@ bool da_rt_targets_ready(RtEffect effect)
     }
     case RtEffect::Reflections:
         return rt->refl_req && rt->refl_req->pRT && rt->refl && rt->refl->pUAView && RImplementation.Target->rt_SSR;
+    case RtEffect::GI:
+        return rt->gi_raw && rt->gi_raw->pUAView && rt->gi_hist[0] && rt->gi_hist[0]->pUAView &&
+            rt->gi_hist[1] && rt->gi_hist[1]->pUAView && rt->gi_hist_depth[0] && rt->gi_hist_depth[0]->pUAView &&
+            rt->gi_hist_depth[1] && rt->gi_hist_depth[1]->pUAView && rt->gi_filter && rt->gi_filter->pUAView &&
+            rt->gi && rt->gi->pUAView;
     default: return false;
     }
 }
@@ -135,7 +140,7 @@ void da_rt_targets_create(CRenderTarget& target)
 {
 #if defined(DA_RT_LANE)
     da_rt_targets_destroy(target);
-    if (!da_rt_available() || !(ps_r__rt_reflections || ps_r__rt_shadows || ps_r__rtao))
+    if (!da_rt_available() || !(ps_r__rt_reflections || ps_r__rt_shadows || ps_r__rtao || ps_r__rtgi))
         return;
     // The first effect switched on on this device brings the pass pipelines.
     da_rt_passes_create();
@@ -161,6 +166,19 @@ void da_rt_targets_create(CRenderTarget& target)
         rt->ao_raw.create(r2_RT_rt_ao_half, rt->ao_width, rt->ao_height, D3DFMT_G16R16F, 1, uav);
         rt->ao_hist[0].create(r2_RT_rt_ao_hist0, rt->ao_width, rt->ao_height, D3DFMT_A16B16G16R16F, 1, uav);
         rt->ao_hist[1].create(r2_RT_rt_ao_hist1, rt->ao_width, rt->ao_height, D3DFMT_A16B16G16R16F, 1, uav);
+    }
+    if (ps_r__rtgi)
+    {
+        rt->gi_half = da_rt_tier_of(ps_r__rt_quality).ao_half;
+        rt->gi_width = rt->gi_half ? (w + 1) / 2 : w;
+        rt->gi_height = rt->gi_half ? (h + 1) / 2 : h;
+        rt->gi_raw.create(r2_RT_rt_gi_raw, rt->gi_width, rt->gi_height, D3DFMT_A16B16G16R16F, 1, uav);
+        rt->gi_hist[0].create(r2_RT_rt_gi_hist0, w, h, D3DFMT_A16B16G16R16F, 1, uav);
+        rt->gi_hist[1].create(r2_RT_rt_gi_hist1, w, h, D3DFMT_A16B16G16R16F, 1, uav);
+        rt->gi_hist_depth[0].create(r2_RT_rt_gi_depth0, w, h, D3DFMT_R16F, 1, uav);
+        rt->gi_hist_depth[1].create(r2_RT_rt_gi_depth1, w, h, D3DFMT_R16F, 1, uav);
+        rt->gi_filter.create(r2_RT_rt_gi_filter, w, h, D3DFMT_A16B16G16R16F, 1, uav);
+        rt->gi.create(r2_RT_rt_gi, w, h, D3DFMT_A16B16G16R16F, 1, uav);
     }
     if (ps_r__rt_reflections)
     {
