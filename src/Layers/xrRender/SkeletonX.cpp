@@ -369,6 +369,46 @@ void CSkeletonX::_Load(const char* N, IReader* data, u32& dwVertCount)
     default: xrDebug::Fatal(DEBUG_INFO, "Invalid vertex type in skinned model '%s'", N); break;
     }
 
+#if defined(XR_D3D12)
+    // DXR's dynamic/skinned BLAS builder needs the original bind-pose vertices
+    // even for hardware-skinned meshes. The ordinary HW path keeps only the GPU
+    // vertex buffer, so da_rt_part_data() otherwise sees no source and silently
+    // drops every such NPC (and rigid part) from the TLAS.
+    //
+    // Preserve the source on DX12 only, including when RT is enabled later by a
+    // vid_restart. Existing software-skinned models already retained it.
+    // ref_smem deduplicates identical model data across visual copies.
+    switch (dwVertType)
+    {
+    case OGF_VERTEXFORMAT_FVF_1L:
+    case 1:
+        if (!*Vertices1W)
+            Vertices1W.create(crc32(data->pointer(), dwVertCount * sizeof(vertBoned1W)),
+                dwVertCount, (vertBoned1W*)data->pointer());
+        break;
+    case OGF_VERTEXFORMAT_FVF_2L:
+    case 2:
+        if (!*Vertices2W)
+            Vertices2W.create(crc32(data->pointer(), dwVertCount * sizeof(vertBoned2W)),
+                dwVertCount, (vertBoned2W*)data->pointer());
+        break;
+    case OGF_VERTEXFORMAT_FVF_3L:
+    case 3:
+        if (!*Vertices3W)
+            Vertices3W.create(crc32(data->pointer(), dwVertCount * sizeof(vertBoned3W)),
+                dwVertCount, (vertBoned3W*)data->pointer());
+        break;
+    case OGF_VERTEXFORMAT_FVF_4L:
+    case 4:
+        if (!*Vertices4W)
+            Vertices4W.create(crc32(data->pointer(), dwVertCount * sizeof(vertBoned4W)),
+                dwVertCount, (vertBoned4W*)data->pointer());
+        break;
+    default:
+        break;
+    }
+#endif
+
     // Look at single bone case in the switch above
     const size_t count = RImplementation.o.ffp ? 0 : 1;
 
