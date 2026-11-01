@@ -17,6 +17,7 @@ cbuffer rt_gi_constants : register(b0)
     float4 gi_colour[GI_LIGHTS];    // rgb intensity, w = spotlight half-cone cosine (-2 for point)
     float4 gi_direction[GI_LIGHTS]; // xyz direction from spotlight
     float4 gi_falloff; // share, soft-core hardness, gain
+    float4 gi_hud_decompress; // first-person HUD's separate projection
 };
 Texture2D<float> gi_depth : register(t0);
 Texture2D<float4> gi_position_buffer : register(t1);
@@ -74,12 +75,14 @@ GiHit gi_trace(RayDesc ray, float cone)
 
 bool gi_visible(float3 p, float3 n, float3 dir, float distance, float cone)
 {
-    if (distance <= 0.04f)
+    if (distance <= 0.006f)
         return true;
     RayDesc ray;
-    ray.Origin = p + n * 0.018f + dir * 0.006f;
+    // Use the geometric normal at traced hits. Centimetre-scale biases let rays
+    // pass through thin walls and wall/floor joins before testing for an occluder.
+    ray.Origin = p + n * 0.002f + dir * 0.0005f;
     ray.Direction = dir;
-    ray.TMin = 0.012f;
+    ray.TMin = 0.001f;
     ray.TMax = distance;
     RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
     query.TraceRayInline(rt_scene, RAY_FLAG_NONE, GI_MASK, ray);
@@ -122,11 +125,11 @@ float gi_light_attenuation(uint i, float3 surface_position, out float3 direction
 
 // Direct lighting at a SECONDARY hit only. The primary direct lights are already in the accumulator.
 // Sample one eligible local light using a CDF, and divide its contribution by its selection PDF.
-float3 gi_direct(float3 p, float3 n, inout uint seed)
+float3 gi_direct(float3 p, float3 n, float3 geometric_n, inout uint seed)
 {
     float3 E = 0.0f;
     const float ndotl = saturate(dot(n, view.sun.xyz));
-    if (ndotl > 0.0f && gi_visible(p, n, view.sun.xyz, 1000.0f, 0.004f))
+    if (ndotl > 0.0f && gi_visible(p, geometric_n, view.sun.xyz, 1000.0f, 0.004f))
         E += max(shade.sun_color.rgb, 0.0f) * ndotl;
 
     const uint count = min(gi_count.x, (uint)GI_LIGHTS);
@@ -155,7 +158,7 @@ float3 gi_direct(float3 p, float3 n, inout uint seed)
         running += importance;
         if (importance > 0.0f && (running >= ticket || i + 1u == count))
         {
-            if (gi_visible(p, n, d, max(distance - 0.035f, 0.0f), 0.003f))
+            if (gi_visible(p, geometric_n, d, max(distance - 0.004f, 0.0f), 0.003f))
                 E += max(gi_colour[i].rgb, 0.0f) * (att * ndl * total / importance);
             break;
         }
@@ -207,17 +210,27 @@ void main(uint3 id : SV_DispatchThreadID)
     const float material_word = gi_position_buffer.Load(int3(pixel, 0)).w;
     const float material_code = (view.scene.z & RT_VIEW_GBUFFER_PACKED) ?
         gbuf_unpack_mtl(material_word) : abs(material_word);
-    if (da_is_foliage(material_code) || rt_is_hud(z, surface))
+    if (da_is_foliage(material_code))
     {
         gi_raw[id.xy] = 0.0f;
         return;
     }
-    const float3 origin = rt_to_world(rt_view_pos(float2(pixel) + 0.5f, z, view), view);
+    // The first-person weapon and hands are drawn into the G-buffer with a different
+    // field of view. Their G-buffer z is correct; the main projection's decoded depth
+    // and view ray are not. They receive world-space GI without adding fake HUD
+    // meshes to the world TLAS (so they do not cast world-space shadows).
+    const bool hud = rt_is_hud(z, surface);
+    const float primary_z = hud ? surface.z : z;
+    const float4 decompression = hud ? gi_hud_decompress : view.pos_decompress;
+    const float2 primary_xy = float2(pixel) + 0.5f;
+    const float3 primary_view = float3(primary_z * (primary_xy * decompression.zw - decompression.xy), primary_z);
+    const float3 origin = rt_to_world(primary_view, view);
     float3 normal = normalize(rt_dir_to_world(surface.n_view, view));
+    float3 geometric_normal = normal; // Primary G-buffer has no triangle face normal.
     float3 bounce_position = origin;
     float3 throughput = 1.0f;
     float3 indirect = 0.0f;
-    float cone = rt_pixel_size(z, view);
+    float cone = rt_pixel_size(primary_z, view) * (hud ? abs(gi_hud_decompress.w / view.pos_decompress.w) : 1.0f);
     uint seed = pixel.x * 1973u ^ pixel.y * 9277u ^ view.scene.w * 26699u ^ 0x68bc21ebu;
     const uint bounces = clamp((uint)gi_params.z, 1u, 5u);
 
@@ -226,9 +239,9 @@ void main(uint3 id : SV_DispatchThreadID)
         float2 random_dir = float2(gi_random(seed), gi_random(seed));
         const float3 direction = rt_cosine_dir(normal, random_dir);
         RayDesc ray;
-        ray.Origin = bounce_position + normal * 0.02f + direction * 0.004f;
+        ray.Origin = bounce_position + geometric_normal * 0.002f + direction * 0.0005f;
         ray.Direction = direction;
-        ray.TMin = 0.015f;
+        ray.TMin = 0.001f;
         ray.TMax = gi_params.w;
         const GiHit hit = gi_trace(ray, cone);
         if (hit.t < 0.0f)
@@ -243,12 +256,13 @@ void main(uint3 id : SV_DispatchThreadID)
         const RtHitSurface surface_hit = rt_hit_surface(geometry, instance, hit_triangle, hit.bary, hit.o2w,
             direction, cone + 0.001f * hit.t, view);
         normal = normalize(surface_hit.normal);
+        geometric_normal = normalize(surface_hit.geometric_normal);
         const float3 albedo = saturate(surface_hit.albedo);
         if (surface_hit.emissive)
             indirect += throughput * albedo;
         // For cosine-hemisphere sampling, f*cos(theta)/pdf = albedo.
         throughput *= albedo;
-        indirect += throughput * gi_direct(bounce_position, normal, seed);
+        indirect += throughput * gi_direct(bounce_position, normal, geometric_normal, seed);
         cone += 0.002f * hit.t;
 
         // Russian roulette after the second bounce: divide by survival probability.
@@ -260,5 +274,5 @@ void main(uint3 id : SV_DispatchThreadID)
             throughput /= survive;
         }
     }
-    gi_raw[id.xy] = float4(min(max(indirect, 0.0f), 32.0f), z);
+    gi_raw[id.xy] = float4(min(max(indirect, 0.0f), 32.0f), primary_z);
 }

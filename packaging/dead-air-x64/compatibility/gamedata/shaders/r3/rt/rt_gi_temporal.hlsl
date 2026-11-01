@@ -39,12 +39,9 @@ void main(uint3 id : SV_DispatchThreadID)
     const float z = rt_linear_z(d, view);
     const RtSurface here = rt_surface(gi_position, gi_normal, int2(id.xy), view);
     const float3 n_world = normalize(rt_dir_to_world(here.n_view, view));
-    gi_depth_out[id.xy] = float4(n_world, z);
-    if (rt_is_hud(z, here))
-    {
-        gi_history_out[id.xy] = 0.0f;
-        return;
-    }
+    gi_depth_out[id.xy] = float4(n_world, rt_is_hud(z, here) ? here.z : z);
+    const bool hud = rt_is_hud(z, here);
+    const float primary_z = hud ? here.z : z;
 
     const int2 texel = int2(id.xy / uint(temporal.z));
     const int2 last = int2(temporal.xy) - 1;
@@ -82,12 +79,15 @@ void main(uint3 id : SV_DispatchThreadID)
                 }
             }
             const RtSurface source_surface = rt_surface(gi_position, gi_normal, int2(source_pixel), view);
+            const float source_z = rt_linear_z(gi_depth.Load(int3(source_pixel, 0)), view);
+            if (rt_is_hud(source_z, source_surface) != hud)
+                continue;
             const float3 source_normal = normalize(rt_dir_to_world(source_surface.n_view, view));
             if (dot(n_world, source_normal) < 0.85f)
                 continue;
             const float2 centre = (float2(t) + 0.5f) * temporal.z;
             const float2 delta = (centre - (float2(id.xy) + 0.5f)) / temporal.z;
-            const float dz = abs(traced_sample.a - z);
+            const float dz = abs(traced_sample.a - primary_z);
             const float plane_scale = max(0.04f + 0.02f * z, 0.04f);
             const float w = exp(-0.65f * dot(delta, delta)) * exp(-dz / plane_scale);
             const float3 c = gi_tm(traced_sample.rgb);
@@ -101,7 +101,9 @@ void main(uint3 id : SV_DispatchThreadID)
     float3 result = current;
     float frames = total > 1e-5f ? 1.0f : 0.0f;
 
-    if (total > 1e-5f && (view.scene.z & RT_VIEW_HISTORY_VALID))
+    // HUD geometry follows a separate animated pose and projection. Its world-camera
+    // reprojection cannot be trusted, so accumulate it spatially but not temporally.
+    if (!hud && total > 1e-5f && (view.scene.z & RT_VIEW_HISTORY_VALID))
     {
         const float3 world = rt_to_world(primary, view);
         const float3 prev = rt_project(world, view.vp_prev);

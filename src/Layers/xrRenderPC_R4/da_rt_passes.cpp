@@ -24,6 +24,9 @@
 #include "Layers/xrRender/Light_Package.h"
 #endif
 
+// Engine-wide first-person FOV, shared with r__dsgraph_render.cpp and HUD self-shadow.
+extern ENGINE_API float psHUD_FOV;
+
 namespace xray::render::RENDER_NAMESPACE
 {
 #if defined(DA_RT_LANE)
@@ -147,10 +150,11 @@ struct DaRtGiConstants
     Fvector4 light_colour[kGiLights]{};
     Fvector4 light_direction[kGiLights]{};
     Fvector4 falloff;
+    Fvector4 hud_decompress;
 };
 static_assert(sizeof(DaRtGiConstants) <= da_rt_max_constants);
 struct DaRtGiTemporalConstants { DaRtView view; Fvector4 temporal; };
-struct DaRtGiFilterConstants { DaRtView view; Fvector4 filter; };
+struct DaRtGiFilterConstants { DaRtView view; Fvector4 filter, hud_decompress; };
 struct DaRtGiLight
 {
     const light* source{};
@@ -671,6 +675,7 @@ void da_rt_gi_pass(CBackend& cmd_list)
         quality == 2 ? 500.f : 300.f);
     trace.light_count[0] = g_gi_lights.count;
     trace.falloff.set(ps_r__light_falloff, ps_r__light_falloff_core, ps_r__light_falloff_gain, 0.f);
+    trace.hud_decompress = da_pos_decompress(psHUD_FOV * Device.fFOV);
     for (u32 i = 0; i < g_gi_lights.count; ++i)
     {
         trace.light_position[i] = g_gi_lights.entries[i].position;
@@ -688,6 +693,7 @@ void da_rt_gi_pass(CBackend& cmd_list)
     DaRtGiFilterConstants filter{};
     filter.view = da_rt_view(0);
     filter.filter.set(1.f, 24.f, 0.025f, 0.3f);
+    filter.hud_decompress = trace.hud_decompress;
     ID3D11ShaderResourceView* spatial_inputs[4] = {da_rt_srv(rt->gi_hist[cur]), depth, position, normal};
     ID3D11UnorderedAccessView* spatial_output = rt->gi_filter->pUAView;
 

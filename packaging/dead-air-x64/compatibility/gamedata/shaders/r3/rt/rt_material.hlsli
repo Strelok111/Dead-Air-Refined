@@ -122,6 +122,7 @@ struct RtHitSurface
 {
 	float3	albedo;
 	float3	normal;		// world, facing the ray
+	float3	geometric_normal; // actual triangle face; safe for offsetting rays
 	float	hemi;
 	bool	emissive;
 };
@@ -139,6 +140,10 @@ RtHitSurface rt_hit_surface( RtGeometry g, RtInstance inst, RtTriangle t, float2
 	if ( dot( n, ray_dir ) > 0.0f )
 		n = -n;
 	h.normal = n;
+	float3 gn = dot(face, face) > 1e-8f ? normalize(face) : n;
+	if (dot(gn, ray_dir) > 0.0f)
+		gn = -gn;
+	h.geometric_normal = gn;
 
 	const float vertex_hemi = t.v0.hemi * w.x + t.v1.hemi * w.y + t.v2.hemi * w.z;
 	h.hemi = saturate( vertex_hemi * inst.hemi_scale + inst.hemi_bias );
