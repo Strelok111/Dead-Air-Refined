@@ -470,6 +470,7 @@ struct DaRtSkinned
 {
     DaRtBuffer* out{};
     u32 out_bindless{kNone};
+    bool out_readable{}; // false: freshly created COMMON; true: transitioned to SRV after skin dispatch
     DaRtAccel* as{};
     u64 as_size{}, build_scratch{}, update_scratch{};
     u32 vertices{};
@@ -1790,6 +1791,7 @@ void da_rt_update_dynamic(DaRtSection& section)
                 continue;
             }
             entry.vertices = source->vertices;
+            entry.out_readable = false; // new D3D12 output is in COMMON state
             entry.out_bindless = da_rt_native_slot(entry.out, bytes);
             g_scene.memory += bytes;
         }
@@ -1829,8 +1831,16 @@ void da_rt_update_dynamic(DaRtSection& section)
         d.tables[1] = palette.address;
         d.raw_output = da_rt_address(entry.out);
         d.groups_x = (entry.vertices + 63) / 64;
+        // This is a raw root UAV (u0, space3), not a typed UAV view. The
+        // dispatch helper cannot transition it automatically. Without this,
+        // every subsequent frame writes into a buffer still in SRV state,
+        // leaving skinned BLAS vertices stale or corrupted.
+        section.writable(entry.out, entry.out_readable);
         if (!section.dispatch(d))
         {
+            // Restore a known readable state even when the dispatch is skipped.
+            section.written(entry.out);
+            entry.out_readable = true;
             ++no_skin_dispatch;
             continue;
         }
@@ -1843,7 +1853,10 @@ void da_rt_update_dynamic(DaRtSection& section)
     {
         da_rt_require_geometry(section);
         for (const Refit& r : refits)
+        {
             section.written(r.entry->out);
+            r.entry->out_readable = true;
+        }
         constexpr u32 skinned_flags = DaRtBuildFastBuild | DaRtBuildAllowUpdate;
         for (Refit& r : refits)
         {

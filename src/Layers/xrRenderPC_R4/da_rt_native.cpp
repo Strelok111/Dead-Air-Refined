@@ -522,6 +522,22 @@ void DaRtSection::scratch_barrier(DaRtBuffer* scratch)
 #endif
 }
 
+void DaRtSection::writable(DaRtBuffer* buffer, bool previously_readable)
+{
+    if (!m_open || !buffer)
+        return;
+#if defined(XR_D3D12)
+    // A raw GPU-VA UAV does not go through RequireView(). An explicit transition
+    // is required every frame after written() made the buffer readable for BLAS.
+    transition(m_scope.list, native(buffer),
+        previously_readable ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE : D3D12_RESOURCE_STATE_COMMON,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+#else
+    UNUSED(previously_readable);
+    xrvk::AccelBarrier(m_context);
+#endif
+}
+
 void DaRtSection::written(DaRtBuffer* buffer)
 {
     if (!m_open || !buffer)

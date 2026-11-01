@@ -320,6 +320,9 @@ public:
     void accel_barrier(DaRtAccel* accel = nullptr);
     // The next builds reuse this scratch.
     void scratch_barrier(DaRtBuffer* scratch);
+    // Transition a skinned vertex buffer back to UAV before reusing raw_output.
+    // New buffers begin in COMMON; after written() they remain NON_PIXEL_SHADER_RESOURCE.
+    void writable(DaRtBuffer* buffer, bool previously_readable);
     // A buffer a dispatch wrote through raw_output, read next by builds and passes.
     void written(DaRtBuffer* buffer);
     // The compacted sizes of the builds so far into `query` (after an accel_barrier).
