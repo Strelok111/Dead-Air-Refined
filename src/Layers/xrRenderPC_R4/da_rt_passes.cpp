@@ -290,7 +290,9 @@ void da_rt_debug_pass(CBackend& cmd_list, CRenderTarget& t, DaRtTargets& rt)
 {
     if (!ps_r__rt_debug || !g_rt_passes.debug || !da_rt_scene_ready())
         return;
-    if (ps_r__rt_debug >= 6 && (!rt.gi || rt.gi_frame != Device.dwFrame))
+    // The dynamic geometry diagnostic (9) is independent of GI; don't hide it
+    // when the GI pipeline is unavailable or its trace failed this frame.
+    if (ps_r__rt_debug >= 6 && ps_r__rt_debug <= 8 && (!rt.gi || rt.gi_frame != Device.dwFrame))
         return;
     if (!rt.debug)
         rt.debug.create("$user$rt_debug", rt.width, rt.height, D3DFMT_A16B16G16R16F, 1, {CRT::CreateUAV});
@@ -301,6 +303,7 @@ void da_rt_debug_pass(CBackend& cmd_list, CRenderTarget& t, DaRtTargets& rt)
     c.debug[0] = u32(ps_r__rt_debug);
     c.debug[1] = rt.gi_width;
     c.debug[2] = rt.gi_height;
+    c.debug[3] = da_rt_scene_binding().dynamic_instances;
     // gi_current is advanced to the previous slot after the GI pass. XOR 1 is this frame's history.
     ID3D11ShaderResourceView* inputs[9] = {da_rt_srv(rt.sun), da_rt_srv(DaRtAccess::ao_target(t)), da_rt_srv(rt.refl),
         da_rt_srv(da_rt_depth(t)), da_rt_srv(t.rt_Color), da_rt_srv(rt.gloss), da_rt_srv(rt.gi),

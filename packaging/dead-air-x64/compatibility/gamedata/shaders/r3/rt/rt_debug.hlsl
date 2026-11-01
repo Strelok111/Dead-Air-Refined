@@ -10,7 +10,7 @@
 cbuffer rt_debug_constants : register( b0 )
 {
 	RtView	view;
-	uint4	debug;		// x mode, yz raw GI trace dimensions
+	uint4	debug;		// x mode, yz raw GI trace dimensions, w moving TLAS instance count
 };
 
 Texture2D<float>	dbg_sun		: register( t0 );
@@ -143,6 +143,10 @@ void main( uint3 id : SV_DispatchThreadID )
 			c = float3( 1.0f, 0.12f, 0.1f );
 		else if ( skin_t > 0.0f && skin_t <= max_visible )
 			c = float3( 0.0f, 0.9f, 1.0f );
+		// Top strip: magenta = no moving geometry in TLAS, green = at least one.
+		// A visible strip also proves the current debug shader is really loaded.
+		if ( id.y < 8u )
+			c = debug.w > 0u ? float3( 0.0f, 1.0f, 0.1f ) : float3( 1.0f, 0.0f, 1.0f );
 		break;
 	}
 	default:

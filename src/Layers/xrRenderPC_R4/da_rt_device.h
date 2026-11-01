@@ -178,6 +178,7 @@ struct DaRtSceneBinding
     DaRtAddress tables[da_rt_max_tables]{}; // geometry, instances, per-frame geometry, per-frame instances
     u32 static_instances{};
     u32 static_texture_base{};
+    u32 dynamic_instances{}; // number of moving TLAS instances successfully rebuilt this frame
     // The vegetation tables (da_veg_rt_tables): bindless slot (~0u none), a species' profile rows, the season block's
     // first float4, a species' season rows.
     u32 veg_tables{~0u}, veg_prof{}, veg_seas{}, veg_rows{};

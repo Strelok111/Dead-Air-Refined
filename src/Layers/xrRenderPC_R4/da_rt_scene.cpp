@@ -901,6 +901,7 @@ bool da_rt_build_tlas(DaRtSection& section, const DaRtInstanceDesc* dynamic, u32
     section.build(build);
     section.accel_barrier(g_scene.tlas);
     g_scene.tlas_dynamic = dynamic_count != 0;
+    g_scene.binding.dynamic_instances = dynamic_count;
     g_scene.binding.tlas = g_scene.tlas_view;
     return true;
 }
@@ -1871,6 +1872,7 @@ void da_rt_update_dynamic(DaRtSection& section)
     // their records: without them it takes the static instances alone.
     g_scene.binding.tables[2] = 0;
     g_scene.binding.tables[3] = 0;
+    g_scene.binding.dynamic_instances = 0;
     u32 dynamic_count = 0;
     if (!frame.records.empty())
     {
@@ -2070,6 +2072,7 @@ void da_rt_frame_scene(CBackend& cmd_list)
     {
         g_scene.binding.tables[2] = 0;
         g_scene.binding.tables[3] = 0;
+        g_scene.binding.dynamic_instances = 0;
         if (g_scene.tlas_dynamic)
             da_rt_build_tlas(section, nullptr, 0, false);
     }
