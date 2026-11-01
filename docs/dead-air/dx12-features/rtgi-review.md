@@ -1,3 +1,6 @@
+
+
+# mega ai slop, done for fun
 # DX12 multi-bounce RTGI: experimental implementation and acceptance criteria
 
 Status: **Experimental source implementation; Windows engine build, DXC shader compilation and runtime QA are NOT verified.**
