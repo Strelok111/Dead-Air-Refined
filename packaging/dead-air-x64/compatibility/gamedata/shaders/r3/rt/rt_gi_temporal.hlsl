@@ -76,7 +76,7 @@ void main(uint3 id : SV_DispatchThreadID)
     const float3 current = total > 1e-5f ? sum / total : 0.0f;
     const float3 sigma = total > 1e-5f ? sqrt(max(square / total - current * current, 0.0f)) : 0.0f;
     float3 result = current;
-    float frames = 1.0f;
+    float frames = total > 1e-5f ? 1.0f : 0.0f;
 
     if (total > 1e-5f && (view.scene.z & RT_VIEW_HISTORY_VALID))
     {

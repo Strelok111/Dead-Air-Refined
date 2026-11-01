@@ -21,7 +21,7 @@ void main(uint3 id : SV_DispatchThreadID)
     const float4 centre = gi_source.Load(int3(id.xy, 0));
     if (rt_is_sky(d))
     {
-        gi_out[id.xy] = float4(centre.rgb, 1.0f);
+        gi_out[id.xy] = 0.0f;
         return;
     }
     const float z = rt_linear_z(d, view);
@@ -29,7 +29,7 @@ void main(uint3 id : SV_DispatchThreadID)
     const float material_word = gi_position.Load(int3(id.xy, 0)).w;
     const float material_code = (view.scene.z & RT_VIEW_GBUFFER_PACKED) ?
         gbuf_unpack_mtl(material_word) : abs(material_word);
-    if (da_is_foliage(material_code))
+    if (da_is_foliage(material_code) || rt_is_hud(z, base) || centre.a <= 0.0f)
     {
         gi_out[id.xy] = 0.0f;
         return;
@@ -61,6 +61,8 @@ void main(uint3 id : SV_DispatchThreadID)
             const float3 q = rt_view_pos(float2(at) + 0.5f, qz, view);
             const float plane = abs(dot(base.n_view, q - p));
             const float4 v = gi_source.Load(int3(at, 0));
+            if (v.a <= 0.0f)
+                continue;
             const float l = dot(v.rgb, float3(0.2126f, 0.7152f, 0.0722f));
             const float weight = kernel[abs(x)] * kernel[abs(y)] *
                 exp(-plane / scale) * pow(saturate(dot(base.n_view, neighbour.n_view)), filter.y) *
