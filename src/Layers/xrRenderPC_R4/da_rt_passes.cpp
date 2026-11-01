@@ -633,7 +633,95 @@ void da_rt_gi_capture_lights(const light_Package& package)
 void da_rt_gi_pass(CBackend& cmd_list)
 {
     UNUSED(cmd_list);
-    // RTGI dispatch is not yet integrated. Do not advertise the effect as ready.
+#if defined(XR_D3D12)
+    if (!da_rt_live(RtEffect::GI))
+        return;
+    DaRtTargets* rt = da_rt_targets();
+    if (!rt || !RImplementation.Target || g_gi_lights.frame != Device.dwFrame)
+        return;
+    CRenderTarget& t = *RImplementation.Target;
+    const DaRtSceneBinding& scene = da_rt_scene_binding();
+    const u32 frame = Device.dwFrame;
+    const u32 cur = rt->gi_current, prev = cur ^ 1u;
+    const bool history = rt->gi_frame + 1 == frame && !da_history_reset();
+    ID3D11ShaderResourceView* depth = da_rt_srv(da_rt_depth(t));
+    ID3D11ShaderResourceView* position = da_rt_srv(t.rt_Position);
+    ID3D11ShaderResourceView* normal = RImplementation.o.gbuffer_opt ? nullptr : da_rt_srv(t.rt_Normal);
+    if (!depth || !position)
+        return;
+    DaRtGiConstants trace{};
+    trace.view = da_rt_view(0);
+    trace.shade = da_rt_shade();
+    const u32 quality = da_rt_quality();
+    trace.params.set(float(rt->gi_width), float(rt->gi_height), float(quality == 0 ? 2 : quality == 1 ? 3 : 4),
+        quality == 2 ? 500.f : 300.f);
+    trace.light_count[0] = g_gi_lights.count;
+    trace.falloff.set(ps_r__light_falloff, ps_r__light_falloff_core, ps_r__light_falloff_gain, 0.f);
+    for (u32 i = 0; i < g_gi_lights.count; ++i)
+    {
+        trace.light_position[i] = g_gi_lights.entries[i].position;
+        trace.light_colour[i] = g_gi_lights.entries[i].colour;
+        trace.light_direction[i] = g_gi_lights.entries[i].direction;
+    }
+    ID3D11ShaderResourceView* trace_inputs[5] = {depth, position, normal, da_rt_srv(rt->t_sky0), da_rt_srv(rt->t_sky1)};
+    ID3D11UnorderedAccessView* raw_output = rt->gi_raw->pUAView;
+    DaRtGiTemporalConstants temporal{};
+    temporal.view = da_rt_view(history ? kViewHistoryValid : 0u);
+    temporal.temporal.set(float(rt->gi_width), float(rt->gi_height), rt->gi_half ? 2.f : 1.f, 0.12f);
+    ID3D11ShaderResourceView* temporal_inputs[7] = {da_rt_srv(rt->gi_raw), da_rt_srv(rt->gi_hist[prev]),
+        da_rt_srv(rt->gi_hist_depth[prev]), depth, position, normal, da_rt_srv(t.rt_Velocity)};
+    ID3D11UnorderedAccessView* temporal_outputs[2] = {rt->gi_hist[cur]->pUAView, rt->gi_hist_depth[cur]->pUAView};
+    DaRtGiFilterConstants filter{};
+    filter.view = da_rt_view(0);
+    filter.filter.set(1.f, 24.f, 0.025f, 0.3f);
+    ID3D11ShaderResourceView* spatial_inputs[4] = {da_rt_srv(rt->gi_hist[cur]), depth, position, normal};
+    ID3D11UnorderedAccessView* spatial_output = rt->gi_filter->pUAView;
+
+    dx11GpuTimerScope timer(dx11GpuTimers::RtGI);
+    DaRtSection section;
+    if (!section)
+        return;
+    da_rt_require_geometry(section);
+    const auto dispatch = [&](DaRtPipeline pipeline, const void* constants, u32 size,
+                              ID3D11ShaderResourceView* const* inputs, u32 input_count,
+                              ID3D11UnorderedAccessView* const* outputs, u32 output_count,
+                              u32 width, u32 height, bool traces) {
+        DaRtDispatch d;
+        d.pipeline = pipeline;
+        d.constants = constants;
+        d.constants_size = size;
+        d.inputs = inputs;
+        d.input_count = input_count;
+        d.outputs = outputs;
+        d.output_count = output_count;
+        if (traces)
+        {
+            d.scene = scene.tlas;
+            for (u32 i = 0; i < da_rt_max_tables; ++i)
+                d.tables[i] = scene.tables[i];
+        }
+        d.groups_x = da_rt_groups(width);
+        d.groups_y = da_rt_groups(height);
+        return section.dispatch(d);
+    };
+    if (!dispatch(g_rt_passes.gi_trace, &trace, sizeof(trace), trace_inputs, 5, &raw_output, 1,
+                  rt->gi_width, rt->gi_height, true))
+        return;
+    if (!dispatch(g_rt_passes.gi_temporal, &temporal, sizeof(temporal), temporal_inputs, 7,
+                  temporal_outputs, 2, rt->width, rt->height, false))
+        return;
+    if (!dispatch(g_rt_passes.gi_filter, &filter, sizeof(filter), spatial_inputs, 4,
+                  &spatial_output, 1, rt->width, rt->height, false))
+        return;
+    filter.filter.x = 2.f;
+    ID3D11ShaderResourceView* last_inputs[4] = {da_rt_srv(rt->gi_filter), depth, position, normal};
+    ID3D11UnorderedAccessView* last_output = rt->gi->pUAView;
+    if (!dispatch(g_rt_passes.gi_filter, &filter, sizeof(filter), last_inputs, 4,
+                  &last_output, 1, rt->width, rt->height, false))
+        return;
+    rt->gi_frame = frame;
+    rt->gi_current = prev;
+#endif
 }
 
 void da_rt_gloss_pass(CBackend& cmd_list)
