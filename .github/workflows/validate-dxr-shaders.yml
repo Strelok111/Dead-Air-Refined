@@ -1,0 +1,77 @@
+name: Validate DXR shaders
+
+on:
+  push:
+    branches:
+      - feature/rtgi-multibounce
+    paths:
+      - 'packaging/dead-air-x64/compatibility/gamedata/shaders/r3/**'
+      - '.github/workflows/validate-dxr-shaders.yml'
+  pull_request:
+    paths:
+      - 'packaging/dead-air-x64/compatibility/gamedata/shaders/r3/**'
+      - '.github/workflows/validate-dxr-shaders.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dxc:
+    name: DXC compute shader compile
+    runs-on: windows-latest
+    steps:
+      - name: Check out shaders
+        uses: actions/checkout@v6
+
+      - name: Compile every native DXR shader and permutation (cs_6_5)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdkBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+          $compilers = @(Get-ChildItem -LiteralPath $sdkBin -Recurse -Filter dxc.exe -File |
+              Where-Object { $_.Directory.Name -eq 'x64' } |
+              Sort-Object FullName -Descending)
+          if ($compilers.Count -eq 0) { throw "Windows SDK dxc.exe is missing from $sdkBin" }
+          $dxc = $compilers[0].FullName
+          Write-Host "Compiler: $dxc"
+          $shaderRoot = 'packaging/dead-air-x64/compatibility/gamedata/shaders/r3'
+          Push-Location $shaderRoot
+          try {
+            $variants = @(
+              @{ name = 'probe'; file = 'rt/rt_probe.hlsl'; defs = @() },
+              @{ name = 'sun'; file = 'rt/rt_sun_shadow.hlsl'; defs = @() },
+              @{ name = 'sun-direct'; file = 'rt/rt_sun_shadow.hlsl'; defs = @('RT_SUN_DIRECT') },
+              @{ name = 'temporal'; file = 'rt/rt_temporal.hlsl'; defs = @() },
+              @{ name = 'atrous-first'; file = 'rt/rt_atrous.hlsl'; defs = @('RT_ATROUS_FIRST') },
+              @{ name = 'atrous-last'; file = 'rt/rt_atrous.hlsl'; defs = @() },
+              @{ name = 'ao'; file = 'rt/rt_ao.hlsl'; defs = @() },
+              @{ name = 'ao-half'; file = 'rt/rt_ao.hlsl'; defs = @('RT_AO_HALF') },
+              @{ name = 'ao-upsample'; file = 'rt/rt_ao_upsample.hlsl'; defs = @() },
+              @{ name = 'reflections'; file = 'rt/rt_reflections.hlsl'; defs = @() },
+              @{ name = 'gloss'; file = 'rt/rt_gloss.hlsl'; defs = @() },
+              @{ name = 'gloss-temporal'; file = 'rt/rt_gloss_temporal.hlsl'; defs = @() },
+              @{ name = 'skin'; file = 'rt/rt_skin.hlsl'; defs = @() },
+              @{ name = 'debug'; file = 'rt/rt_debug.hlsl'; defs = @() },
+              @{ name = 'gi-trace'; file = 'rt/rt_gi.hlsl'; defs = @() },
+              @{ name = 'gi-temporal'; file = 'rt/rt_gi_temporal.hlsl'; defs = @() },
+              @{ name = 'gi-filter'; file = 'rt/rt_gi_filter.hlsl'; defs = @() }
+            )
+            $passed = 0
+            foreach ($variant in $variants) {
+              $output = Join-Path $env:RUNNER_TEMP ($variant.name + '.dxil')
+              $arguments = @('-T', 'cs_6_5', '-E', 'main', '-HV', '2021',
+                  '-Zpr', '-O3', '-I', '.', '-Fo', $output,
+                  '-D', 'GRIZZLY_DXC=1', '-D', 'GRIZZLY_SM=65', '-D', 'SMAP_ARRAY=1')
+              foreach ($define in $variant.defs) { $arguments += @('-D', "$define=1") }
+              $arguments += $variant.file
+              Write-Host "Compiling $($variant.name): $($variant.file)"
+              & $dxc @arguments
+              if ($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $output)) {
+                throw "DXC failed: $($variant.name) ($($variant.file))"
+              }
+              $passed++
+            }
+            Write-Host "All $passed DXR compute shader variants compiled successfully."
+          }
+          finally { Pop-Location }
