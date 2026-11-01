@@ -1,5 +1,6 @@
 // Two-pass depth/normal/colour-guided a-trous filter for RGB indirect irradiance.
 #include "rt_common.hlsli"
+#include "da_material_codes.h"
 cbuffer rt_gi_filter_constants : register(b0)
 {
     RtView view;
@@ -25,6 +26,14 @@ void main(uint3 id : SV_DispatchThreadID)
     }
     const float z = rt_linear_z(d, view);
     const RtSurface base = rt_surface(gi_position, gi_normal, int2(id.xy), view);
+    const float material_word = gi_position.Load(int3(id.xy, 0)).w;
+    const float material_code = (view.scene.z & RT_VIEW_GBUFFER_PACKED) ?
+        gbuf_unpack_mtl(material_word) : abs(material_word);
+    if (da_is_foliage(material_code))
+    {
+        gi_out[id.xy] = 0.0f;
+        return;
+    }
     const float3 p = rt_view_pos(float2(id.xy) + 0.5f, z, view);
     const float kernel[3] = {0.375f, 0.25f, 0.0625f};
     const int step = int(filter.x);
@@ -45,6 +54,10 @@ void main(uint3 id : SV_DispatchThreadID)
                 continue;
             const float qz = rt_linear_z(dep, view);
             const RtSurface neighbour = rt_surface(gi_position, gi_normal, at, view);
+            const float mw = gi_position.Load(int3(at, 0)).w;
+            const float code = (view.scene.z & RT_VIEW_GBUFFER_PACKED) ? gbuf_unpack_mtl(mw) : abs(mw);
+            if (da_is_foliage(code))
+                continue;
             const float3 q = rt_view_pos(float2(at) + 0.5f, qz, view);
             const float plane = abs(dot(base.n_view, q - p));
             const float4 v = gi_source.Load(int3(at, 0));

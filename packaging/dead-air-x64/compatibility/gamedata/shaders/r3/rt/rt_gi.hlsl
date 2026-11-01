@@ -201,7 +201,10 @@ void main(uint3 id : SV_DispatchThreadID)
     }
     const float z = rt_linear_z(depth, view);
     const RtSurface surface = rt_surface(gi_position_buffer, gi_normal_buffer, int2(pixel), view);
-    if (rt_is_hud(z, surface))
+    const float material_word = gi_position_buffer.Load(int3(pixel, 0)).w;
+    const float material_code = (view.scene.z & RT_VIEW_GBUFFER_PACKED) ?
+        gbuf_unpack_mtl(material_word) : abs(material_word);
+    if (da_is_foliage(material_code) || rt_is_hud(z, surface))
     {
         gi_raw[id.xy] = 0.0f;
         return;

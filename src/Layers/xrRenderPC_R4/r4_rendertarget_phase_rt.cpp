@@ -140,7 +140,12 @@ void da_rt_targets_create(CRenderTarget& target)
 {
 #if defined(DA_RT_LANE)
     da_rt_targets_destroy(target);
-    if (!da_rt_available() || !(ps_r__rt_reflections || ps_r__rt_shadows || ps_r__rtao || ps_r__rtgi))
+#if defined(XR_D3D12)
+    const bool gi_requested = ps_r__rtgi != 0;
+#else
+    const bool gi_requested = false;
+#endif
+    if (!da_rt_available() || !(ps_r__rt_reflections || ps_r__rt_shadows || ps_r__rtao || gi_requested))
         return;
     // The first effect switched on on this device brings the pass pipelines.
     da_rt_passes_create();
@@ -167,7 +172,7 @@ void da_rt_targets_create(CRenderTarget& target)
         rt->ao_hist[0].create(r2_RT_rt_ao_hist0, rt->ao_width, rt->ao_height, D3DFMT_A16B16G16R16F, 1, uav);
         rt->ao_hist[1].create(r2_RT_rt_ao_hist1, rt->ao_width, rt->ao_height, D3DFMT_A16B16G16R16F, 1, uav);
     }
-    if (ps_r__rtgi && da_rt_pass_ready(RtEffect::GI))
+    if (gi_requested && da_rt_pass_ready(RtEffect::GI))
     {
         rt->gi_half = da_rt_tier_of(ps_r__rt_quality).ao_half;
         rt->gi_width = rt->gi_half ? (w + 1) / 2 : w;
