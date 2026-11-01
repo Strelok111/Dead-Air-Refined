@@ -1312,14 +1312,16 @@ u32 da_rt_dynamic_texture(const ref_texture& t)
 // The index window of a model part (a skeleton child draws from index 0, or from its slide window).
 bool da_rt_part_window(Fvisual* v, u32& first, u32& count)
 {
-    first = 0;
+    // Index ranges of skeleton parts can share an engine buffer. Match the
+    // normal renderer's base index rather than tracing somebody else's triangles.
+    first = v->iBase;
     count = v->dwPrimitives * 3;
     if (auto* pm = dynamic_cast<FProgressive*>(v))
     {
         const FSlideWindowItem& swi = DaRtProgressiveAccess::windows(*pm);
         if (swi.count && swi.sw)
         {
-            first = swi.sw[0].offset;
+            first = v->iBase + swi.sw[0].offset;
             count = u32(swi.sw[0].num_tris) * 3;
         }
     }
@@ -1439,14 +1441,18 @@ DaRtModelBuffer* da_rt_model_buffer(DaRtSection& section, const CSkeletonX& s, b
             entry.bindless = da_rt_native_slot(entry.buffer, da_align(u64(entry.vertices) * kPackedStride, 256));
         return entry.buffer ? &entry : nullptr;
     }
+    const xr_vector<u8> data = da_rt_part_vertices(s, skin_source);
+    if (data.empty())
+        return nullptr;
+    entry.buffer = section.upload_buffer(data.data(), data.size(), skin_source ? "rt skin source" : "rt model vertices");
+    // Failed uploads must be retried next frame; marking an empty buffer as
+    // already uploaded made the corresponding rigid/skinned model disappear forever.
+    if (!entry.buffer)
+        return nullptr;
     entry.uploaded = true;
     entry.crc = part.crc;
     entry.length = part.length;
     entry.serial = ++g_scene.upload_serial;
-    const xr_vector<u8> data = da_rt_part_vertices(s, skin_source);
-    entry.buffer = section.upload_buffer(data.data(), data.size(), skin_source ? "rt skin source" : "rt model vertices");
-    if (!entry.buffer)
-        return nullptr;
     entry.vertices = part.vertices;
     if (!skin_source)
         entry.bindless = da_rt_native_slot(entry.buffer, da_align(data.size(), 256));
