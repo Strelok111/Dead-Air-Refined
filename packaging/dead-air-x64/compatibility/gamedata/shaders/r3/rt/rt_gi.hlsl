@@ -256,7 +256,15 @@ void main(uint3 id : SV_DispatchThreadID)
         const RtHitSurface surface_hit = rt_hit_surface(geometry, instance, hit_triangle, hit.bary, hit.o2w,
             direction, cone + 0.001f * hit.t, view);
         normal = normalize(surface_hit.normal);
-        geometric_normal = normalize(surface_hit.geometric_normal);
+        // Derive the geometric face normal locally instead of depending on an
+        // extended RtHitSurface layout. Some installations retain an older
+        // rt_material.hlsli alongside the updated GI shader.
+        const float3 face = cross(
+            mul((float3x3)hit.o2w, hit_triangle.v1.position - hit_triangle.v0.position),
+            mul((float3x3)hit.o2w, hit_triangle.v2.position - hit_triangle.v0.position));
+        geometric_normal = dot(face, face) > 1e-8f ? normalize(face) : normal;
+        if (dot(geometric_normal, direction) > 0.0f)
+            geometric_normal = -geometric_normal;
         const float3 albedo = saturate(surface_hit.albedo);
         if (surface_hit.emissive)
             indirect += throughput * albedo;
