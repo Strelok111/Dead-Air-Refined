@@ -29,6 +29,32 @@ jobs:
         shell: pwsh
         run: tools/build/build_x64.ps1 -Configuration ${{ matrix.configuration }} -Clean
 
+      # Branch testing needs shader overrides as well as xrRender_R5.dll. The
+      # normal compatibility archive is a separate packaging step, so a plain
+      # build artifact otherwise silently lacks every new RTGI shader.
+      - name: Stage RTGI shaders in the Release test artifact
+        if: ${{ matrix.configuration == 'Release' && github.ref == 'refs/heads/feature/rtgi-multibounce' }}
+        shell: pwsh
+        run: |
+          $source = "packaging/dead-air-x64/compatibility/gamedata/shaders/r3"
+          $target = "bin/x64/Release/gamedata/shaders/r3"
+          New-Item -ItemType Directory -Force -Path (Join-Path $target "rt") | Out-Null
+          $files = @(
+            "combine_1.ps",
+            "da_rt_consumer.h",
+            "rt/rt_debug.hlsl",
+            "rt/rt_gi.hlsl",
+            "rt/rt_gi_temporal.hlsl",
+            "rt/rt_gi_filter.hlsl"
+          )
+          foreach ($file in $files) {
+            $from = Join-Path $source $file
+            $to = Join-Path $target $file
+            if (!(Test-Path -LiteralPath $from)) { throw "Missing RTGI shader: $from" }
+            Copy-Item -LiteralPath $from -Destination $to -Force
+            Write-Host "Staged RTGI shader: $file"
+          }
+
       - name: Upload runtime
         uses: actions/upload-artifact@v7
         with:
