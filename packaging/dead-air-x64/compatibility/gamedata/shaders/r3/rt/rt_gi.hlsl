@@ -95,10 +95,10 @@ bool gi_visible(float3 p, float3 n, float3 dir, float distance, float cone)
     return query.CommittedStatus() != COMMITTED_TRIANGLE_HIT;
 }
 
-float gi_light_attenuation(uint i, float3 point, out float3 direction, out float max_distance)
+float gi_light_attenuation(uint i, float3 surface_position, out float3 direction, out float max_distance)
 {
     const float4 light = gi_position[i];
-    const float3 delta = light.xyz - point;
+    const float3 delta = light.xyz - surface_position;
     const float dist2 = dot(delta, delta);
     const float x2 = dist2 * light.w;
     max_distance = sqrt(max(dist2, 1e-6f));
@@ -214,7 +214,7 @@ void main(uint3 id : SV_DispatchThreadID)
     }
     const float3 origin = rt_to_world(rt_view_pos(float2(pixel) + 0.5f, z, view), view);
     float3 normal = normalize(rt_dir_to_world(surface.n_view, view));
-    float3 point = origin;
+    float3 bounce_position = origin;
     float3 throughput = 1.0f;
     float3 indirect = 0.0f;
     float cone = rt_pixel_size(z, view);
@@ -226,7 +226,7 @@ void main(uint3 id : SV_DispatchThreadID)
         float2 random_dir = float2(gi_random(seed), gi_random(seed));
         const float3 direction = rt_cosine_dir(normal, random_dir);
         RayDesc ray;
-        ray.Origin = point + normal * 0.02f + direction * 0.004f;
+        ray.Origin = bounce_position + normal * 0.02f + direction * 0.004f;
         ray.Direction = direction;
         ray.TMin = 0.015f;
         ray.TMax = gi_params.w;
@@ -236,7 +236,7 @@ void main(uint3 id : SV_DispatchThreadID)
             indirect += throughput * gi_sky(direction);
             break;
         }
-        point = ray.Origin + ray.Direction * hit.t;
+        bounce_position = ray.Origin + ray.Direction * hit.t;
         const RtGeometry geometry = rt_geometry_of(hit.instance_id, hit.geometry_index);
         const RtInstance instance = rt_instance_of(hit.instance_index, view);
         const RtTriangle triangle = rt_fetch(geometry, hit.primitive);
@@ -248,7 +248,7 @@ void main(uint3 id : SV_DispatchThreadID)
             indirect += throughput * albedo;
         // For cosine-hemisphere sampling, f*cos(theta)/pdf = albedo.
         throughput *= albedo;
-        indirect += throughput * gi_direct(point, normal, seed);
+        indirect += throughput * gi_direct(bounce_position, normal, seed);
         cone += 0.002f * hit.t;
 
         // Russian roulette after the second bounce: divide by survival probability.
