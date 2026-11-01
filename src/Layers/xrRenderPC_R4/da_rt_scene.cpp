@@ -1496,6 +1496,13 @@ void da_rt_collect_dynamic(xr_vector<DaRtRigidCandidate>& rigid, xr_vector<DaRtS
     const Fvector& camera = Device.vCameraPosition;
     xr_vector<ISpatial*> found;
     g_pGamePersistent->SpatialSpace.q_sphere(found, 0, STYPE_RENDERABLE, camera, tier.rigid_radius);
+    // Some physics-managed renderables register in the physical spatial DB instead of
+    // the ordinary scene DB. Include them without double-inserting the same object.
+    xr_vector<ISpatial*> physics_found;
+    g_pGamePersistent->SpatialSpacePhysic.q_sphere(physics_found, 0, STYPE_RENDERABLE, camera, tier.rigid_radius);
+    found.insert(found.end(), physics_found.begin(), physics_found.end());
+    std::unordered_set<ISpatial*> seen;
+    u32 eligible_renderables = 0;
     IGameObject* viewer = g_pGameLevel ? g_pGameLevel->CurrentViewEntity() : nullptr;
 
     struct Walk
@@ -1554,6 +1561,7 @@ void da_rt_collect_dynamic(xr_vector<DaRtRigidCandidate>& rigid, xr_vector<DaRtS
             switch (v->Type)
             {
             case MT_HIERRARHY:
+            case MT_LOD:
                 for (dxRender_Visual* child : static_cast<FHierrarhyVisual*>(v)->children)
                     visual(child, world);
                 return;
@@ -1576,12 +1584,15 @@ void da_rt_collect_dynamic(xr_vector<DaRtRigidCandidate>& rigid, xr_vector<DaRtS
 
     for (ISpatial* spatial : found)
     {
+        if (!seen.insert(spatial).second)
+            continue;
         IRenderable* renderable = spatial->dcast_Renderable();
         if (!renderable || (viewer && spatial->dcast_GameObject() == viewer))
             continue;
         const RenderData& data = renderable->GetRenderData();
         if (!data.visual || data.hud || data.invisible)
             continue;
+        ++eligible_renderables;
         auto* v = static_cast<dxRender_Visual*>(data.visual);
         const float distance = camera.distance_to(data.xform.c);
         float hemi = 0.5f;
@@ -1603,6 +1614,9 @@ void da_rt_collect_dynamic(xr_vector<DaRtRigidCandidate>& rigid, xr_vector<DaRtS
             break;
     }
     skinned.resize(keep);
+    if (ps_r__rt_debug == 9 && Device.dwFrame % 120u == 0u)
+        Msg("* [rt] dynamic collect: spatial %u (+%u physics), eligible %u, rigid candidates %u, skinned parts %u",
+            u32(found.size()), u32(physics_found.size()), eligible_renderables, u32(rigid.size()), u32(skinned.size()));
 }
 
 // The moving objects of this frame into the structures, the tables and the top-level build.
@@ -1869,7 +1883,10 @@ void da_rt_update_dynamic(DaRtSection& section)
     }
     // Every structure written above is complete before the top level reads it.
     section.accel_barrier();
-    da_rt_build_tlas(section, frame.instances.data(), dynamic_count, true);
+    const bool tlas_ok = da_rt_build_tlas(section, frame.instances.data(), dynamic_count, true);
+    if (ps_r__rt_debug == 9 && Device.dwFrame % 120u == 0u)
+        Msg("* [rt] dynamic TLAS: %u built instances (%u new rigid BLAS, %u skinned parts), tables %s, TLAS %s",
+            dynamic_count, builds, u32(refits.size()), dynamic_count ? "ready" : "empty", tlas_ok ? "ok" : "failed");
 }
 
 // Structures nobody used for a while go (after the GPU is done with them).

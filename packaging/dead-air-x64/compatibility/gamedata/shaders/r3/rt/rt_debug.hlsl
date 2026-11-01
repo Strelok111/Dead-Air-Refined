@@ -2,7 +2,8 @@
 // primary ray finds against the G-buffer's own (left half traced, right half G-buffer), which is
 // what proves the vertex and texture decode of the hit shading, 5 the glossy surfaces' reflections
 // (tonemapped; where the sky's cube stays, dark blue); 6 final filtered GI,
-// 7 raw traced GI (no denoising), 8 temporally accumulated GI (before spatial filtering).
+// 7 raw traced GI (no denoising), 8 temporally accumulated GI (before spatial filtering),
+// 9 dynamic-only TLAS geometry test (red = rigid, cyan = skinned).
 
 #include "rt_geometry.hlsli"
 
@@ -66,6 +67,16 @@ float3 dbg_primary_albedo( uint2 pixel )
 	return albedo;
 }
 
+// Bypass alpha materials deliberately: this view tests the BLAS/TLAS geometry and masks,
+// not texture bindings or stochastic GI. A missing object here is a scene-build problem.
+float dbg_dynamic_distance( RayDesc ray, uint mask )
+{
+	RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> q;
+	q.TraceRayInline( rt_scene, RAY_FLAG_NONE, mask, ray );
+	while ( q.Proceed() ) {}
+	return q.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? q.CommittedRayT() : -1.0f;
+}
+
 [numthreads( 8, 8, 1 )]
 void main( uint3 id : SV_DispatchThreadID )
 {
@@ -110,6 +121,28 @@ void main( uint3 id : SV_DispatchThreadID )
 	{
 		const float3 gi = max( dbg_gi_temporal.Load( int3( id.xy, 0 ) ).rgb, 0.0f );
 		c = gi / ( 1.0f + gi );
+		break;
+	}
+	case 9u:
+	{
+		const float3 dir_view = rt_view_pos( float2( id.xy ) + 0.5f, 1.0f, view );
+		RayDesc ray;
+		ray.Origin = view.camera.xyz;
+		ray.Direction = normalize( rt_dir_to_world( dir_view, view ) );
+		ray.TMin = 0.05f;
+		ray.TMax = 100.0f;
+		const float rigid_t = dbg_dynamic_distance( ray, RT_MASK_DYNAMIC );
+		const float skin_t = dbg_dynamic_distance( ray, RT_MASK_SKINNED );
+		// Show only objects at the G-buffer surface, not models hidden behind walls.
+		const float depth = dbg_depth.Load( int3( id.xy, 0 ) );
+		const float max_visible = rt_is_sky( depth ) ? 100.0f :
+			length( rt_view_pos( float2( id.xy ) + 0.5f, rt_linear_z( depth, view ), view ) ) + 0.10f;
+		c = dbg_albedo.Load( int3( id.xy, 0 ) ).rgb * 0.12f;
+		if ( rigid_t > 0.0f && rigid_t <= max_visible &&
+			( skin_t < 0.0f || rigid_t <= skin_t ) )
+			c = float3( 1.0f, 0.12f, 0.1f );
+		else if ( skin_t > 0.0f && skin_t <= max_visible )
+			c = float3( 0.0f, 0.9f, 1.0f );
 		break;
 	}
 	default:
