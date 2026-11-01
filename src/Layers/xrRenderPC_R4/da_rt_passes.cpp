@@ -568,6 +568,68 @@ const ref_rt* da_rt_gloss_scene_target()
 #endif
 }
 
+void da_rt_gi_capture_lights(const light_Package& package)
+{
+#if defined(XR_D3D12)
+    if (!ps_r__rtgi || !da_rt_available())
+        return;
+    if (g_gi_lights.frame != Device.dwFrame)
+    {
+        g_gi_lights.frame = Device.dwFrame;
+        g_gi_lights.count = 0;
+    }
+    const auto consider = [&](const xr_vector<light*>& sources) {
+        for (const light* raw : sources)
+        {
+            if (!raw)
+                continue;
+            // Point-light shadow faces share an emitter; do not count it six times.
+            const light* L = raw->flags.type == IRender_Light::OMNIPART ? raw->omnipart_owner : raw;
+            if (!L || !L->flags.bActive || L->range <= EPS_L)
+                continue;
+            const bool spot = L->flags.type == IRender_Light::SPOT;
+            if (!spot && L->flags.type != IRender_Light::POINT)
+                continue;
+            bool duplicate = false;
+            for (u32 i = 0; i < g_gi_lights.count; ++i)
+                duplicate |= g_gi_lights.entries[i].source == L;
+            if (duplicate)
+                continue;
+            const float gap = std::max(Device.vCameraPosition.distance_to(L->position) - L->range, 0.f);
+            const float lod = std::max(L->get_LOD(), 0.f);
+            const float energy = std::max({L->color.r, L->color.g, L->color.b}) * lod;
+            const float priority = energy / (1.f + 0.02f * gap * gap);
+            if (priority <= 0.f)
+                continue;
+            u32 index = g_gi_lights.count;
+            if (index == kGiLights)
+            {
+                index = 0;
+                for (u32 i = 1; i < kGiLights; ++i)
+                    if (g_gi_lights.entries[i].priority < g_gi_lights.entries[index].priority)
+                        index = i;
+                if (priority <= g_gi_lights.entries[index].priority)
+                    continue;
+            }
+            else
+                ++g_gi_lights.count;
+            DaRtGiLight& dst = g_gi_lights.entries[index];
+            dst.source = L;
+            dst.priority = priority;
+            dst.position.set(L->position.x, L->position.y, L->position.z, 1.f / (L->range * L->range));
+            dst.colour.set(L->color.r * lod, L->color.g * lod, L->color.b * lod,
+                spot ? cosf(L->cone * 0.5f) : -2.f);
+            dst.direction.set(L->direction.x, L->direction.y, L->direction.z, 0.f);
+        }
+    };
+    consider(package.v_point);
+    consider(package.v_spot);
+    consider(package.v_shadowed);
+#else
+    UNUSED(package);
+#endif
+}
+
 void da_rt_gi_pass(CBackend& cmd_list)
 {
     UNUSED(cmd_list);
