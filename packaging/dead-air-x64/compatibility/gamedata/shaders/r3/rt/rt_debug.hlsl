@@ -1,14 +1,15 @@
 // r__rt_debug views (dxr.md 4.1): 1 the sun mask, 2 the occlusion, 3 the reflections, 4 the albedo a
 // primary ray finds against the G-buffer's own (left half traced, right half G-buffer), which is
 // what proves the vertex and texture decode of the hit shading, 5 the glossy surfaces' reflections
-// (tonemapped; where the sky's cube stays, dark blue).
+// (tonemapped; where the sky's cube stays, dark blue); 6 final filtered GI,
+// 7 raw traced GI (no denoising), 8 temporally accumulated GI (before spatial filtering).
 
 #include "rt_geometry.hlsli"
 
 cbuffer rt_debug_constants : register( b0 )
 {
 	RtView	view;
-	uint4	debug;		// x mode
+	uint4	debug;		// x mode, yz raw GI trace dimensions
 };
 
 Texture2D<float>	dbg_sun		: register( t0 );
@@ -18,6 +19,8 @@ Texture2D<float>	dbg_depth	: register( t3 );
 Texture2D<float4>	dbg_albedo	: register( t4 );
 Texture2D<float4>	dbg_gloss	: register( t5 );
 Texture2D<float4>	dbg_gi		: register( t6 );
+Texture2D<float4>	dbg_gi_raw	: register( t7 );
+Texture2D<float4>	dbg_gi_temporal	: register( t8 );
 
 RWTexture2D<float4>	dbg_out		: register( u0 );
 
@@ -92,6 +95,20 @@ void main( uint3 id : SV_DispatchThreadID )
 	case 6u:
 	{
 		const float3 gi = max( dbg_gi.Load( int3( id.xy, 0 ) ).rgb, 0.0f );
+		c = gi / ( 1.0f + gi );
+		break;
+	}
+	case 7u:
+	{
+		// High traces at render resolution; lower tiers map to half-resolution raw samples.
+		const uint2 t = min( uint2( ( float2( id.xy ) + 0.5f ) * float2( debug.yz ) / view.size.xy ), debug.yz - 1u );
+		const float3 gi = max( dbg_gi_raw.Load( int3( t, 0 ) ).rgb, 0.0f );
+		c = gi / ( 1.0f + gi );
+		break;
+	}
+	case 8u:
+	{
+		const float3 gi = max( dbg_gi_temporal.Load( int3( id.xy, 0 ) ).rgb, 0.0f );
 		c = gi / ( 1.0f + gi );
 		break;
 	}

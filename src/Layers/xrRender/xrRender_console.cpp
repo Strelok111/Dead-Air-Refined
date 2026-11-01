@@ -2486,7 +2486,7 @@ void xrRender_initconsole()
     CMD4(CCC_Integer, "r__rtao", &ps_r__rtao, 0, 1);
     CMD4(CCC_Integer, "r__rtgi", &ps_r__rtgi, 0, 1);
     CMD3(CCC_Token, "r__rt_quality", &ps_r__rt_quality, qrt_quality_token);
-    CMD4(CCC_RuntimeInteger, "r__rt_debug", &ps_r__rt_debug, 0, 6);
+    CMD4(CCC_RuntimeInteger, "r__rt_debug", &ps_r__rt_debug, 0, 8);
     // [dx12:rt] end commands
 #endif
 #if defined(USE_RENDERDOC)
