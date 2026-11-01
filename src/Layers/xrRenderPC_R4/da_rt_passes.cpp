@@ -20,6 +20,9 @@
 #include "Layers/xrRender/da_veg.h"
 #include "Layers/xrRenderDX11/dx11GpuTimers.h"
 #endif
+#if defined(XR_D3D12)
+#include "Layers/xrRender/Light_Package.h"
+#endif
 
 namespace xray::render::RENDER_NAMESPACE
 {
@@ -132,6 +135,36 @@ struct DaRtGlossTemporalConstants
     DaRtView view;
     Fvector4 temporal, temporal2;
 };
+#if defined(XR_D3D12)
+constexpr u32 kGiLights = 48;
+struct DaRtGiConstants
+{
+    DaRtView view;
+    DaRtShade shade;
+    Fvector4 params;
+    u32 light_count[4]{};
+    Fvector4 light_position[kGiLights]{};
+    Fvector4 light_colour[kGiLights]{};
+    Fvector4 light_direction[kGiLights]{};
+    Fvector4 falloff;
+};
+static_assert(sizeof(DaRtGiConstants) <= da_rt_max_constants);
+struct DaRtGiTemporalConstants { DaRtView view; Fvector4 temporal; };
+struct DaRtGiFilterConstants { DaRtView view; Fvector4 filter; };
+struct DaRtGiLight
+{
+    const light* source{};
+    float priority{};
+    Fvector4 position, colour, direction;
+};
+struct DaRtGiLights
+{
+    u32 frame{u32(-2)};
+    u32 count{};
+    DaRtGiLight entries[kGiLights]{};
+};
+DaRtGiLights g_gi_lights;
+#endif
 
 // The glossy reflections (dxr.md 3.9): the lowest gloss traced, the gloss of the full weight, the spread of a
 // rough surface's rays (tangent per roughness squared), the history clip in sigmas, the least fresh share.

@@ -15,6 +15,7 @@ namespace xray::render::RENDER_NAMESPACE
 {
 class CBackend;
 class CRenderTarget;
+class light_Package;
 
 enum class RtEffect : u32
 {
@@ -66,7 +67,8 @@ void da_rt_frame_scene(CBackend& cmd_list); // before async fork A: acceleration
 void da_rt_sun_pass(CBackend& cmd_list);    // before the sun accumulation
 bool da_rt_ao_pass(CBackend& cmd_list);     // the AO slot: true = RTAO ran instead of GTAO/SSAO
 void da_rt_gloss_pass(CBackend& cmd_list);  // after the AO slot, before combine_1: glossy reflections
-void da_rt_gi_pass(CBackend& cmd_list);     // multi-bounce diffuse GI, before combine_1
+void da_rt_gi_capture_lights(const light_Package& package); // before local lighting consumes the packages
+void da_rt_gi_pass(CBackend& cmd_list);     // G-buffer ready, before local lighting
 // combine_1's third target this frame: its linear colour for the next frame's glossy reflections (null: none).
 const ref_rt* da_rt_gloss_scene_target();
 void da_rt_reflections_pass(CBackend& cmd_list); // after the scene grab, before the puddles
