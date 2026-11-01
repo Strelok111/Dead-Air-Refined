@@ -239,8 +239,8 @@ void main(uint3 id : SV_DispatchThreadID)
         bounce_position = ray.Origin + ray.Direction * hit.t;
         const RtGeometry geometry = rt_geometry_of(hit.instance_id, hit.geometry_index);
         const RtInstance instance = rt_instance_of(hit.instance_index, view);
-        const RtTriangle triangle = rt_fetch(geometry, hit.primitive);
-        const RtHitSurface surface_hit = rt_hit_surface(geometry, instance, triangle, hit.bary, hit.o2w,
+        const RtTriangle hit_triangle = rt_fetch(geometry, hit.primitive);
+        const RtHitSurface surface_hit = rt_hit_surface(geometry, instance, hit_triangle, hit.bary, hit.o2w,
             direction, cone + 0.001f * hit.t, view);
         normal = normalize(surface_hit.normal);
         const float3 albedo = saturate(surface_hit.albedo);
