@@ -333,6 +333,9 @@ DaRtPipeline da_rt_pipeline(pcstr file, pcstr entry, const DaDxcDefine* defines,
     if (!da_dxc_compile_native(request, code))
     {
         Msg("! [rt] %s does not compile", key.c_str());
+        // Do not remember a failed shader forever: the next vid_restart can retry
+        // after the missing or updated override has been installed.
+        g_rt_device.pipelines.pop_back();
         return nullptr;
     }
 #if defined(XR_D3D12)
@@ -345,9 +348,13 @@ DaRtPipeline da_rt_pipeline(pcstr file, pcstr entry, const DaDxcDefine* defines,
     if (FAILED(HW.pDevice->CreateComputeShader(code.data(), code.size(), nullptr, &pipeline.state)))
         pipeline.state = nullptr;
 #endif
-    if (!pipeline.state)
+    const DaRtPipeline state = pipeline.state;
+    if (!state)
+    {
         Msg("! [rt] the pipeline of %s was refused", key.c_str());
-    return pipeline.state;
+        g_rt_device.pipelines.pop_back();
+    }
+    return state;
 }
 #endif
 
