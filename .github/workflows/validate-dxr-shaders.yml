@@ -36,8 +36,6 @@ jobs:
           $dxc = $compilers[0].FullName
           Write-Host "Compiler: $dxc"
           $shaderRoot = 'packaging/dead-air-x64/compatibility/gamedata/shaders/r3'
-          $artifactDir = Join-Path $env:GITHUB_WORKSPACE 'compiled-dxr-shaders'
-          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
           Push-Location $shaderRoot
           try {
             $variants = @(
@@ -61,7 +59,8 @@ jobs:
             )
             $passed = 0
             foreach ($variant in $variants) {
-              $output = Join-Path $artifactDir ($variant.name + '.dxil')
+              # Compiled DXIL is only needed to validate the source, not as a downloadable artifact.
+              $output = Join-Path $env:RUNNER_TEMP ($variant.name + '.dxil')
               $arguments = @('-T', 'cs_6_5', '-E', 'main', '-HV', '2021',
                   '-Zpr', '-O3', '-I', '.', '-Fo', $output,
                   '-D', 'GRIZZLY_DXC=1', '-D', 'GRIZZLY_SM=65', '-D', 'SMAP_ARRAY=1')
@@ -78,11 +77,13 @@ jobs:
           }
           finally { Pop-Location }
 
-      - name: Upload compiled DXR shaders
+      - name: Upload HLSL shader sources
         if: success()
         uses: actions/upload-artifact@v7
         with:
-          name: compiled-dxr-shaders-${{ github.sha }}
-          path: compiled-dxr-shaders/*.dxil
+          name: dxr-hlsl-sources-${{ github.sha }}
+          # Includes both standalone shaders (.hlsl) and shared includes (.hlsli).
+          # Extract the artifact into gamedata/shaders/r3/rt/.
+          path: packaging/dead-air-x64/compatibility/gamedata/shaders/r3/rt/
           if-no-files-found: error
           retention-days: 30
