@@ -228,7 +228,7 @@ _out main ( _input I, uint iSample : SV_SAMPLEINDEX )
 		const float3 a = 2.0404f * albedo - 0.3324f;
 		const float3 b = -4.7951f * albedo + 0.6417f;
 		const float3 c = 2.7552f * albedo + 0.6903f;
-		if ( da_rt_gi.x > 0.5f )
+		if ( da_rt_gi.x > 0.5f && !da_is_foliage( mtl ) )
 			hdiffuse = s_rt_gi.Load( int3( I.pos2d.xy, 0 ) ).rgb;
 		else
 			hdiffuse *= max( occ.xxx, ( ( occ * a + b ) * occ + c ) * occ );
