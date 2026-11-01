@@ -535,7 +535,8 @@ void CRenderTarget::phase_combine()
         // without MSAA) and skips menus - the paused background has no valid history. The
         // history pair is checked as well: CRT::create leaves the surface empty on a format the
         // device rejects, and the pass then simply does not run.
-        const bool taa = ps_r__taa && s_taa && !_menu_pp && rt_taa_history && rt_taa_history->pRT &&
+        // Raw GI debugging must remain raw after presentation, even with r__aa selecting TAA.
+        const bool taa = ps_r__taa && ps_r__rt_debug != 7 && s_taa && !_menu_pp && rt_taa_history && rt_taa_history->pRT &&
             rt_taa_resolve && rt_taa_resolve->pRT;
 
         // SMAA supersedes FXAA when both are enabled - one AA pass per frame. Before TAA its

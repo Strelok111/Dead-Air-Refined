@@ -117,11 +117,18 @@ void da_temporal_frame_begin()
     const CRenderTarget* target = RImplementation.Target;
     const bool taa = !upscaler && ps_r__taa && target && !RImplementation.o.msaa && target->rt_taa_history &&
         target->rt_taa_history->pRT && target->rt_taa_resolve && target->rt_taa_resolve->pRT;
-    g_da_frame.active = !menu && (upscale || taa);
+    // A diagnostic of raw stochastic GI must not accumulate in the game's TAA or
+    // jitter the projection. Temporal upscalers still need to be disabled in settings.
+#if RENDER == R_R4
+    const bool raw_gi_debug = ps_r__rt_debug == 7;
+#else
+    const bool raw_gi_debug = false;
+#endif
+    g_da_frame.active = !menu && !raw_gi_debug && (upscale || taa);
     // Native TAA blends ~16 jittered frames: textures take half a mip sharper (with at least 8x
     // anisotropy, as under the upscalers, so the ground does not shimmer). The upscalers set their own.
     if (!upscaler)
-        SSManager.SetSceneMipBias(taa ? -0.5f : 0.f, taa ? 8u : 0u);
+        SSManager.SetSceneMipBias(taa && !raw_gi_debug ? -0.5f : 0.f, taa && !raw_gi_debug ? 8u : 0u);
     // Frame generation and the ray traced effects' histories read the vectors even without a
     // temporal filter.
     // The motion blur follows moving objects by the vectors too (without them only the camera's motion).
