@@ -36,6 +36,8 @@ jobs:
           $dxc = $compilers[0].FullName
           Write-Host "Compiler: $dxc"
           $shaderRoot = 'packaging/dead-air-x64/compatibility/gamedata/shaders/r3'
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE 'compiled-dxr-shaders'
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
           Push-Location $shaderRoot
           try {
             $variants = @(
@@ -59,7 +61,7 @@ jobs:
             )
             $passed = 0
             foreach ($variant in $variants) {
-              $output = Join-Path $env:RUNNER_TEMP ($variant.name + '.dxil')
+              $output = Join-Path $artifactDir ($variant.name + '.dxil')
               $arguments = @('-T', 'cs_6_5', '-E', 'main', '-HV', '2021',
                   '-Zpr', '-O3', '-I', '.', '-Fo', $output,
                   '-D', 'GRIZZLY_DXC=1', '-D', 'GRIZZLY_SM=65', '-D', 'SMAP_ARRAY=1')
@@ -75,3 +77,12 @@ jobs:
             Write-Host "All $passed DXR compute shader variants compiled successfully."
           }
           finally { Pop-Location }
+
+      - name: Upload compiled DXR shaders
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compiled-dxr-shaders-${{ github.sha }}
+          path: compiled-dxr-shaders/*.dxil
+          if-no-files-found: error
+          retention-days: 30
