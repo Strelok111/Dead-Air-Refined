@@ -63,6 +63,28 @@ void main(uint3 id : SV_DispatchThreadID)
             const float4 sample = gi_sample.Load(int3(t, 0));
             if (sample.a <= 0.0f)
                 continue;
+            // The tracer chooses the nearest-depth pixel of each half-resolution block.
+            // Check that surface's normal before borrowing its indirect illumination.
+            uint2 source_pixel = min(uint2(t) * uint(temporal.z), uint2(view.size.xy) - 1u);
+            if (temporal.z > 1.0f)
+            {
+                float nearest = gi_depth.Load(int3(source_pixel, 0));
+                [unroll] for (uint k = 1u; k < 4u; ++k)
+                {
+                    const uint2 candidate = min(uint2(t) * 2u + uint2(k & 1u, k >> 1u),
+                        uint2(view.size.xy) - 1u);
+                    const float candidate_depth = gi_depth.Load(int3(candidate, 0));
+                    if (candidate_depth < nearest)
+                    {
+                        nearest = candidate_depth;
+                        source_pixel = candidate;
+                    }
+                }
+            }
+            const RtSurface source_surface = rt_surface(gi_position, gi_normal, int2(source_pixel), view);
+            const float3 source_normal = normalize(rt_dir_to_world(source_surface.n_view, view));
+            if (dot(n_world, source_normal) < 0.85f)
+                continue;
             const float2 centre = (float2(t) + 0.5f) * temporal.z;
             const float2 delta = (centre - (float2(id.xy) + 0.5f)) / temporal.z;
             const float dz = abs(sample.a - z);
