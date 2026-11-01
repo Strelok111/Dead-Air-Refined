@@ -286,6 +286,8 @@ void da_rt_debug_pass(CBackend& cmd_list, CRenderTarget& t, DaRtTargets& rt)
 {
     if (!ps_r__rt_debug || !g_rt_passes.debug || !da_rt_scene_ready())
         return;
+    if (ps_r__rt_debug == 6 && (!rt.gi || rt.gi_frame != Device.dwFrame))
+        return;
     if (!rt.debug)
         rt.debug.create("$user$rt_debug", rt.width, rt.height, D3DFMT_A16B16G16R16F, 1, {CRT::CreateUAV});
     if (!rt.debug || !rt.debug->pUAView)
