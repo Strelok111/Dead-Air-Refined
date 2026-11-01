@@ -48,6 +48,11 @@ struct DaRtPasses
     DaRtPipeline reflections{};
     DaRtPipeline gloss{};
     DaRtPipeline gloss_temporal{};
+#if defined(XR_D3D12)
+    DaRtPipeline gi_trace{};
+    DaRtPipeline gi_temporal{};
+    DaRtPipeline gi_filter{};
+#endif
     DaRtPipeline skin{};
     DaRtPipeline debug{};
 #endif
@@ -318,11 +323,24 @@ void da_rt_passes_create()
     p.reflections = da_rt_pipeline("rt/rt_reflections.hlsl", "main");
     p.gloss = da_rt_pipeline("rt/rt_gloss.hlsl", "main");
     p.gloss_temporal = da_rt_pipeline("rt/rt_gloss_temporal.hlsl", "main");
+#if defined(XR_D3D12)
+    if (ps_r__rtgi)
+    {
+        p.gi_trace = da_rt_pipeline("rt/rt_gi.hlsl", "main");
+        p.gi_temporal = da_rt_pipeline("rt/rt_gi_temporal.hlsl", "main");
+        p.gi_filter = da_rt_pipeline("rt/rt_gi_filter.hlsl", "main");
+        p.ready[u32(RtEffect::GI)] = p.gi_trace && p.gi_temporal && p.gi_filter;
+    }
+#endif
     p.skin = da_rt_pipeline("rt/rt_skin.hlsl", "main");
     p.debug = da_rt_pipeline("rt/rt_debug.hlsl", "main");
     p.ready[u32(RtEffect::Shadows)] = p.sun && p.sun_direct && p.temporal && p.atrous_first && p.atrous_last;
     p.ready[u32(RtEffect::AO)] = p.ao && p.ao_half && p.temporal && p.ao_upsample;
     p.ready[u32(RtEffect::Reflections)] = p.reflections;
+#if defined(XR_D3D12)
+    if (ps_r__rtgi)
+        Msg("* [rt] multi-bounce GI pipelines: %s", p.ready[u32(RtEffect::GI)] ? "ok" : "failed");
+#endif
     Msg("* [rt] passes: reflections %s (glossy surfaces %s), sun shadows %s, occlusion %s, characters %s",
         p.ready[u32(RtEffect::Reflections)] ? "ok" : "failed", p.gloss && p.gloss_temporal ? "ok" : "failed",
         p.ready[u32(RtEffect::Shadows)] ? "ok" : "failed", p.ready[u32(RtEffect::AO)] ? "ok" : "failed", p.skin ? "ok" : "failed");
