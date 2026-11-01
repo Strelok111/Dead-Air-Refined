@@ -34,7 +34,8 @@ void CRenderTarget::phase_da_mblur(const Fmatrix& previous)
 {
     m_da_mblur_ran = false;
     m_da_mblur_prev = previous;
-    if (!ps_r__mblur || ps_r__mblur_shutter <= 0.f || RImplementation.o.msaa || !rt_da_mblur_vz ||
+    // Motion blur can make a raw GI or TLAS diagnostic look as if it retained history.
+    if (ps_r__rt_debug >= 6 || !ps_r__mblur || ps_r__mblur_shutter <= 0.f || RImplementation.o.msaa || !rt_da_mblur_vz ||
         !rt_da_mblur_vz->pRT || !rt_da_mblur_near || !rt_da_mblur_near->pRT ||
         (g_pGamePersistent && g_pGamePersistent->OnRenderPPUI_query()))
         return;
