@@ -137,7 +137,7 @@ struct DaRtTargets
     ref_rt gloss_raw, gloss_dist, gloss_hist[2], gloss, gloss_scene;
     u32 gloss_width{}, gloss_height{};
     u32 gloss_current{}, gloss_frame{u32(-2)}, gloss_scene_frame{u32(-2)};
-    // Multi-bounce diffuse GI: trace-resolution samples, full-resolution temporal history/depth and denoised output.
+    // Multi-bounce diffuse GI: raw samples, temporal RGB+length and world-normal+depth histories, filtered output.
     ref_rt gi_raw, gi_hist[2], gi_hist_depth[2], gi_filter, gi;
     u32 gi_width{}, gi_height{};
     u32 gi_current{}, gi_frame{u32(-2)};

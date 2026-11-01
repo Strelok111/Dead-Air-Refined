@@ -180,8 +180,8 @@ void da_rt_targets_create(CRenderTarget& target)
         rt->gi_raw.create(r2_RT_rt_gi_raw, rt->gi_width, rt->gi_height, D3DFMT_A16B16G16R16F, 1, uav);
         rt->gi_hist[0].create(r2_RT_rt_gi_hist0, w, h, D3DFMT_A16B16G16R16F, 1, uav);
         rt->gi_hist[1].create(r2_RT_rt_gi_hist1, w, h, D3DFMT_A16B16G16R16F, 1, uav);
-        rt->gi_hist_depth[0].create(r2_RT_rt_gi_depth0, w, h, D3DFMT_R16F, 1, uav);
-        rt->gi_hist_depth[1].create(r2_RT_rt_gi_depth1, w, h, D3DFMT_R16F, 1, uav);
+        rt->gi_hist_depth[0].create(r2_RT_rt_gi_depth0, w, h, D3DFMT_A16B16G16R16F, 1, uav);
+        rt->gi_hist_depth[1].create(r2_RT_rt_gi_depth1, w, h, D3DFMT_A16B16G16R16F, 1, uav);
         rt->gi_filter.create(r2_RT_rt_gi_filter, w, h, D3DFMT_A16B16G16R16F, 1, uav);
         rt->gi.create(r2_RT_rt_gi, w, h, D3DFMT_A16B16G16R16F, 1, uav);
     }

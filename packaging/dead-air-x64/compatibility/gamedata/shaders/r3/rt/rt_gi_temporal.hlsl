@@ -8,13 +8,13 @@ cbuffer rt_gi_temporal_constants : register(b0)
 };
 Texture2D<float4> gi_sample : register(t0);
 Texture2D<float4> gi_prev_colour : register(t1);
-Texture2D<float> gi_prev_depth : register(t2);
+Texture2D<float4> gi_prev_depth : register(t2);
 Texture2D<float> gi_depth : register(t3);
 Texture2D<float4> gi_position : register(t4);
 Texture2D<float4> gi_normal : register(t5);
 Texture2D<float2> gi_velocity : register(t6);
 RWTexture2D<float4> gi_history_out : register(u0);
-RWTexture2D<float> gi_depth_out : register(u1);
+RWTexture2D<float4> gi_depth_out : register(u1);
 
 float3 gi_tm(float3 c)
 {
@@ -33,12 +33,13 @@ void main(uint3 id : SV_DispatchThreadID)
     if (rt_is_sky(d))
     {
         gi_history_out[id.xy] = 0.0f;
-        gi_depth_out[id.xy] = view.proj.w;
+        gi_depth_out[id.xy] = float4(0.0f, 0.0f, 0.0f, view.proj.w);
         return;
     }
     const float z = rt_linear_z(d, view);
-    gi_depth_out[id.xy] = z;
     const RtSurface here = rt_surface(gi_position, gi_normal, int2(id.xy), view);
+    const float3 n_world = normalize(rt_dir_to_world(here.n_view, view));
+    gi_depth_out[id.xy] = float4(n_world, z);
     if (rt_is_hud(z, here))
     {
         gi_history_out[id.xy] = 0.0f;
@@ -90,8 +91,9 @@ void main(uint3 id : SV_DispatchThreadID)
         }
         if (prev.z > 0.0f && all(prev_uv > 0.0f) && all(prev_uv < 1.0f))
         {
-            const float old_z = gi_prev_depth.SampleLevel(rt_point_clamp, prev_uv, 0);
-            if (abs(old_z - prev.z) < 0.04f + 0.02f * prev.z)
+            const float4 old_surface = gi_prev_depth.SampleLevel(rt_point_clamp, prev_uv, 0);
+            if (abs(old_surface.w - prev.z) < 0.04f + 0.02f * prev.z &&
+                dot(old_surface.xyz, n_world) > 0.85f)
             {
                 const float4 history = gi_prev_colour.SampleLevel(rt_linear_clamp, prev_uv, 0);
                 float3 h = gi_tm(history.rgb);
