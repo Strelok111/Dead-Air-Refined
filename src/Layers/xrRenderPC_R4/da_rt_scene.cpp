@@ -1729,14 +1729,31 @@ void da_rt_update_dynamic(DaRtSection& section)
         bool update;
     };
     xr_vector<Refit> refits;
+    // Count which stage rejects model parts. Normally these are silent early-outs,
+    // making missing NPC geometry indistinguishable from an empty scene.
+    u32 no_skin_pipeline = 0, no_skin_source = 0, no_skin_window = 0, no_skin_indices = 0;
+    u32 no_skin_output = 0, no_skin_palette = 0, no_skin_dispatch = 0;
+    u32 no_skin_sizes = 0, no_skin_as = 0, no_skin_scratch = 0;
+    u32 skin_added = 0;
     for (const DaRtSkinCandidate& c : skin)
     {
         if (!skin_pipeline)
+        {
+            no_skin_pipeline = u32(skin.size());
             break;
+        }
         DaRtModelBuffer* source = da_rt_model_buffer(section, *c.skeleton, true);
-        u32 first = 0, count = 0;
-        if (!source || !da_rt_part_window(c.mesh, first, count))
+        if (!source)
+        {
+            ++no_skin_source;
             continue;
+        }
+        u32 first = 0, count = 0;
+        if (!da_rt_part_window(c.mesh, first, count))
+        {
+            ++no_skin_window;
+            continue;
+        }
         ID3D11Buffer* index_buffer = *c.mesh->p_rm_Indices;
         const DaRtAddress ib = da_rt_engine_address(index_buffer);
         // Looked up every frame the entry is used, so the slots live at least as long as it does.
@@ -1744,7 +1761,10 @@ void da_rt_update_dynamic(DaRtSection& section)
         ShaderElement* element = da_rt_scene_element(c.child);
         const u32 albedo = da_rt_dynamic_texture(da_rt_albedo(element));
         if (!ib || ib_bindless == kNone)
+        {
+            ++no_skin_indices;
             continue;
+        }
         DaRtSkinned& entry = g_scene.skinned[c.child];
         entry.last_frame = frame_index;
         // Another part at a reused visual address: a structure sized and built anew, never refitted.
@@ -1765,7 +1785,10 @@ void da_rt_update_dynamic(DaRtSection& section)
             entry.built = false;
             const u64 bytes = da_align(u64(source->vertices) * kPackedStride, 256);
             if (!(entry.out = da_rt_buffer_create(bytes, "rt skinned vertices")))
+            {
+                ++no_skin_output;
                 continue;
+            }
             entry.vertices = source->vertices;
             entry.out_bindless = da_rt_native_slot(entry.out, bytes);
             g_scene.memory += bytes;
@@ -1785,7 +1808,10 @@ void da_rt_update_dynamic(DaRtSection& section)
         const u32 bones = c.parent->LL_BoneCount();
         const DaRtUpload palette = section.upload(u64(bones) * 48, 16);
         if (!palette.cpu || !bones)
+        {
+            ++no_skin_palette;
             continue;
+        }
         auto* rows = static_cast<Fvector4*>(palette.cpu);
         for (u32 b = 0; b < bones; ++b)
         {
@@ -1804,7 +1830,10 @@ void da_rt_update_dynamic(DaRtSection& section)
         d.raw_output = da_rt_address(entry.out);
         d.groups_x = (entry.vertices + 63) / 64;
         if (!section.dispatch(d))
+        {
+            ++no_skin_dispatch;
             continue;
+        }
         Refit& r = refits.emplace_back();
         r.entry = &entry;
         r.geometry = da_rt_triangles(da_rt_address(entry.out), kPackedStride, entry.vertices, ib + first * 2, count, false);
@@ -1823,18 +1852,27 @@ void da_rt_update_dynamic(DaRtSection& section)
             {
                 DaRtSizes sizes;
                 if (!da_rt_sizes(&r.geometry, 1, skinned_flags, sizes))
+                {
+                    ++no_skin_sizes;
                     continue;
+                }
                 entry.as_size = da_align(sizes.result, kAsAlign);
                 entry.build_scratch = da_align(sizes.build, kAsAlign);
                 entry.update_scratch = da_align(std::max<u64>(sizes.update, 256), kAsAlign);
                 if (!(entry.as = da_rt_accel_create(entry.as_size, false, "rt skinned blas")))
+                {
+                    ++no_skin_as;
                     continue;
+                }
                 g_scene.memory += entry.as_size;
                 r.update = false;
             }
             const u64 scratch = r.update ? entry.update_scratch : entry.build_scratch;
             if (scratch_used + scratch > g_scene.dyn_scratch_size)
+            {
+                ++no_skin_scratch;
                 continue;
+            }
             DaRtBuild build;
             build.dst = entry.as;
             build.src = entry.as;
@@ -1857,8 +1895,16 @@ void da_rt_update_dynamic(DaRtSection& section)
         const auto it = g_scene.skinned.find(c.child);
         if (it == g_scene.skinned.end() || !it->second.built || it->second.last_frame != frame_index)
             continue;
+        const size_t before = frame.instances.size();
         add_instance(c.world, it->second.record, kMaskSkinned, c.hemi, da_rt_address(it->second.as));
+        skin_added += u32(frame.instances.size() - before);
     }
+    if (ps_r__rt_debug == 9 && Device.dwFrame % 120u == 0u)
+        Msg("* [rt] skinned stages: candidates %u, pre-skin dispatches %u, TLAS additions %u, "
+            "missing pipeline %u, source %u, index window %u, index buffer %u, output %u, palette %u, "
+            "dispatch %u, BLAS size %u, BLAS allocation %u, scratch %u",
+            u32(skin.size()), u32(refits.size()), skin_added, no_skin_pipeline, no_skin_source, no_skin_window,
+            no_skin_indices, no_skin_output, no_skin_palette, no_skin_dispatch, no_skin_sizes, no_skin_as, no_skin_scratch);
 
     // Engine buffers first seen this frame, and every tracked one again (they decay at each submission);
     // the textures when one joined.
