@@ -16,6 +16,7 @@ cbuffer rt_gi_constants : register(b0)
     float4 gi_position[GI_LIGHTS];  // xyz world position, w = reciprocal squared range
     float4 gi_colour[GI_LIGHTS];    // rgb intensity, w = spotlight half-cone cosine (-2 for point)
     float4 gi_direction[GI_LIGHTS]; // xyz direction from spotlight
+    float4 gi_falloff; // share, soft-core hardness, gain
 };
 Texture2D<float> gi_depth : register(t0);
 Texture2D<float4> gi_position_buffer : register(t1);
@@ -107,7 +108,9 @@ float gi_light_attenuation(uint i, float3 point, out float3 direction, out float
     // Matches the renderer's default soft-core inverse-square lamp falloff:
     // da_light_falloff.h with share=1, core=4 and gain=1.7.
     const float window = saturate(1.0f - x2 * x2);
-    float attenuation = 1.7f * window * window / (1.0f + 4.0f * x2);
+    const float stock = saturate(1.0f - x2);
+    const float shaped = gi_falloff.z * window * window / (1.0f + gi_falloff.y * x2);
+    float attenuation = lerp(stock * stock, shaped, saturate(gi_falloff.x));
     if (gi_colour[i].w > -1.5f)
     {
         const float cone = gi_colour[i].w;

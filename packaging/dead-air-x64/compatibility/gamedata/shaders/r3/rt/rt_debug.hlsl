@@ -17,6 +17,7 @@ Texture2D<float4>	dbg_refl	: register( t2 );
 Texture2D<float>	dbg_depth	: register( t3 );
 Texture2D<float4>	dbg_albedo	: register( t4 );
 Texture2D<float4>	dbg_gloss	: register( t5 );
+Texture2D<float4>	dbg_gi		: register( t6 );
 
 RWTexture2D<float4>	dbg_out		: register( u0 );
 
@@ -86,6 +87,12 @@ void main( uint3 id : SV_DispatchThreadID )
 	{
 		const float4 r = dbg_gloss.Load( int3( id.xy, 0 ) );
 		c = r.rgb / ( 1.0f + r.rgb ) + ( 1.0f - r.a ) * float3( 0.0f, 0.0f, 0.15f );
+		break;
+	}
+	case 6u:
+	{
+		const float3 gi = max( dbg_gi.Load( int3( id.xy, 0 ) ).rgb, 0.0f );
+		c = gi / ( 1.0f + gi );
 		break;
 	}
 	default:

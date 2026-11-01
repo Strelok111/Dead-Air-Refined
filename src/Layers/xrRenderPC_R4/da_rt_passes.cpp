@@ -293,8 +293,8 @@ void da_rt_debug_pass(CBackend& cmd_list, CRenderTarget& t, DaRtTargets& rt)
     DaRtDebugConstants c{};
     c.view = da_rt_view(0);
     c.debug[0] = u32(ps_r__rt_debug);
-    ID3D11ShaderResourceView* inputs[6] = {da_rt_srv(rt.sun), da_rt_srv(DaRtAccess::ao_target(t)), da_rt_srv(rt.refl),
-        da_rt_srv(da_rt_depth(t)), da_rt_srv(t.rt_Color), da_rt_srv(rt.gloss)};
+    ID3D11ShaderResourceView* inputs[7] = {da_rt_srv(rt.sun), da_rt_srv(DaRtAccess::ao_target(t)), da_rt_srv(rt.refl),
+        da_rt_srv(da_rt_depth(t)), da_rt_srv(t.rt_Color), da_rt_srv(rt.gloss), da_rt_srv(rt.gi)};
     ID3D11UnorderedAccessView* output = rt.debug->pUAView;
     const DaRtSceneBinding& scene = da_rt_scene_binding();
     DaRtDispatch d;
@@ -303,7 +303,7 @@ void da_rt_debug_pass(CBackend& cmd_list, CRenderTarget& t, DaRtTargets& rt)
     d.constants_size = sizeof(c);
     d.scene = scene.tlas;
     d.inputs = inputs;
-    d.input_count = 6;
+    d.input_count = 7;
     d.outputs = &output;
     d.output_count = 1;
     for (u32 i = 0; i < da_rt_max_tables; ++i)
