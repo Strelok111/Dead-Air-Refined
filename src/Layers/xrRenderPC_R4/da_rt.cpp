@@ -28,7 +28,11 @@ bool da_rt_setting(RtEffect effect)
     case RtEffect::Reflections: return ps_r__rt_reflections != 0;
     case RtEffect::Shadows: return ps_r__rt_shadows != 0;
     case RtEffect::AO: return ps_r__rtao != 0;
+#if defined(XR_D3D12)
     case RtEffect::GI: return ps_r__rtgi != 0;
+#else
+    case RtEffect::GI: return false;
+#endif
     default: return false;
     }
 }

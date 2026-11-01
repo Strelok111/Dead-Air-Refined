@@ -774,6 +774,13 @@ void CRender::Render()
         dx11_debug_drain_messages("pre_lights");
     }
 
+#if RENDER == R_R4
+    // GI must snapshot both packages and trace before the direct-light phase consumes them.
+    da_rt_gi_capture_lights(LP_normal);
+    da_rt_gi_capture_lights(LP_pending);
+    da_rt_gi_pass(RCache);
+#endif
+
 #if defined(USE_DX11)
     GpuTimers.Begin(dx11GpuTimers::Lights);
 #endif

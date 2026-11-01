@@ -7,6 +7,7 @@
 #include "Layers/xrRenderPC_R4/da_particle_light.h"
 #include "Layers/xrRenderPC_R4/da_smap_cache.h"
 #include "Layers/xrRenderPC_R4/da_light_volumes.h"
+#include "Layers/xrRenderPC_R4/da_rt.h"
 #include "Layers/xrRender/da_grass_blades.h"
 #include "Layers/xrRenderDX11/dx11GpuTimers.h"
 #endif
@@ -702,6 +703,11 @@ void CRender::render_lights(light_Package& LP)
 
 void CRender::render_indirect(light* L) const
 {
+#if RENDER == R_R4
+    // The GI trace replaces the old reflected-light sprites only when it ran this frame.
+    if (da_rt_gi_constant() > 0.5f)
+        return;
+#endif
     if (!ps_r2_ls_flags.test(R2FLAG_GI))
         return;
 
