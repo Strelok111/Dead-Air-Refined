@@ -60,8 +60,8 @@ void main(uint3 id : SV_DispatchThreadID)
         [unroll] for (int x = -1; x <= 1; ++x)
         {
             const int2 t = clamp(texel + int2(x, y), int2(0, 0), last);
-            const float4 sample = gi_sample.Load(int3(t, 0));
-            if (sample.a <= 0.0f)
+            const float4 traced_sample = gi_sample.Load(int3(t, 0));
+            if (traced_sample.a <= 0.0f)
                 continue;
             // The tracer chooses the nearest-depth pixel of each half-resolution block.
             // Check that surface's normal before borrowing its indirect illumination.
@@ -87,10 +87,10 @@ void main(uint3 id : SV_DispatchThreadID)
                 continue;
             const float2 centre = (float2(t) + 0.5f) * temporal.z;
             const float2 delta = (centre - (float2(id.xy) + 0.5f)) / temporal.z;
-            const float dz = abs(sample.a - z);
+            const float dz = abs(traced_sample.a - z);
             const float plane_scale = max(0.04f + 0.02f * z, 0.04f);
             const float w = exp(-0.65f * dot(delta, delta)) * exp(-dz / plane_scale);
-            const float3 c = gi_tm(sample.rgb);
+            const float3 c = gi_tm(traced_sample.rgb);
             sum += c * w;
             square += c * c * w;
             total += w;
