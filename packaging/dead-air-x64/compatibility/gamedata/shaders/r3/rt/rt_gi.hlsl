@@ -165,7 +165,10 @@ float3 gi_direct(float3 p, float3 n, inout uint seed)
 
 float3 gi_sky(float3 direction)
 {
-    return max(shade.sky_tint.rgb, 0.0f) *
+    // The direct-sky tint fades to zero with overcast. GI must still see the cloudy sky:
+    // keep the hemisphere/environment colour as its minimum radiance tint.
+    const float3 tint = max(shade.sky_tint.rgb, shade.env_color.rgb * 0.5f);
+    return max(tint, 0.0f) *
         lerp(gi_sky0.SampleLevel(rt_linear_clamp, direction, 0).rgb,
              gi_sky1.SampleLevel(rt_linear_clamp, direction, 0).rgb,
              saturate(shade.env_color.w)) * 0.66f;
