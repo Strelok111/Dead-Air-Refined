@@ -618,6 +618,10 @@ const xr_token qrt_quality_token[] =
     { nullptr, 0 }
 };
 int ps_r__rt_debug = 0;
+// Diagnostic controls, kept enabled normally. DX12 only: isolate black RT
+// triangles and measure dynamic-scene costs without restarting the renderer.
+int ps_r__rt_dynamic = 1;
+int ps_r__rt_skinned = 1;
 // [dx12:rt] end variables
 // Fade band width before that cut-off, metres; 0 = hard edge (stock). Blades lie down over
 // the band so their shadows shorten into nothing instead of popping at a moving circle.
@@ -2487,6 +2491,8 @@ void xrRender_initconsole()
     CMD4(CCC_Integer, "r__rtgi", &ps_r__rtgi, 0, 1);
     CMD3(CCC_Token, "r__rt_quality", &ps_r__rt_quality, qrt_quality_token);
     CMD4(CCC_RuntimeInteger, "r__rt_debug", &ps_r__rt_debug, 0, 9);
+    CMD4(CCC_RuntimeInteger, "r__rt_dynamic", &ps_r__rt_dynamic, 0, 1);
+    CMD4(CCC_RuntimeInteger, "r__rt_skinned", &ps_r__rt_skinned, 0, 1);
     // [dx12:rt] end commands
 #endif
 #if defined(USE_RENDERDOC)

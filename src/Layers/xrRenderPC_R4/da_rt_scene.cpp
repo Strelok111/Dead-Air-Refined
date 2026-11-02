@@ -1634,6 +1634,12 @@ void da_rt_update_dynamic(DaRtSection& section)
     xr_vector<DaRtRigidCandidate> rigid;
     xr_vector<DaRtSkinCandidate> skin;
     da_rt_collect_dynamic(rigid, skin, tier);
+#if defined(XR_D3D12)
+    // Isolate invalid skinned triangles and their BLAS refit workload without
+    // disabling rigid physics props or changing ray masks. Default remains on.
+    if (!ps_r__rt_skinned)
+        skin.clear();
+#endif
 
     DaRtFrameDynamic frame;
     const u32 frame_index = Device.dwFrame;
@@ -2119,7 +2125,12 @@ void da_rt_frame_scene(CBackend& cmd_list)
     }
 
     // Moving objects contribute to GI, occlusion and reflections; sun-shadow rays mask them out.
-    const bool track = da_rt_live(RtEffect::AO) || da_rt_live(RtEffect::Reflections) || da_rt_live(RtEffect::GI);
+    bool track = da_rt_live(RtEffect::AO) || da_rt_live(RtEffect::Reflections) || da_rt_live(RtEffect::GI);
+#if defined(XR_D3D12)
+    // Live diagnostic: remove moving instances while retaining static RT, GI,
+    // and their output buffers. The existing static-only TLAS rebuild runs below.
+    track = track && ps_r__rt_dynamic != 0;
+#endif
     dx11GpuTimerScope gpu(dx11GpuTimers::RtScene);
     DaRtSection section;
     if (!section)
