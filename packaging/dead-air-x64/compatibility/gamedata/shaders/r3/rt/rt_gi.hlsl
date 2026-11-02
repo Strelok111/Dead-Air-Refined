@@ -141,7 +141,8 @@ float3 gi_direct(float3 p, float3 spawn, float3 n, float3 geometric_n, inout uin
         float3 d;
         float distance;
         const float att = gi_light_attenuation(i, p, d, distance);
-        total += att * saturate(dot(n, d)) *
+        // Use the same geometric-hemisphere eligibility in the CDF and PDF.
+        total += (dot(geometric_n, d) > 0.0f ? att * saturate(dot(n, d)) : 0.0f) *
             dot(max(gi_colour[i].rgb, 0.0f), float3(0.2126f, 0.7152f, 0.0722f));
     }
     if (total < 1e-6f)
