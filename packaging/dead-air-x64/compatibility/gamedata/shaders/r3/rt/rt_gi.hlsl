@@ -177,6 +177,61 @@ float3 gi_sky(float3 direction)
              saturate(shade.env_color.w)) * 0.66f;
 }
 
+// Recover a primary geometric normal from the hardware depth surface rather
+// than relying on the G-buffer shading normal. The latter may be normal-mapped
+// or smoothly interpolated and can point below the triangle's actual plane.
+// Use one-sided screen derivatives with the closest compatible neighbour so
+// wall/floor and silhouette discontinuities are not mixed into the estimate.
+bool gi_neighbour_view(int2 pixel, float centre_z, float3 centre_n, out float3 p_view)
+{
+    p_view = 0.0f;
+    if (any(pixel < int2(0, 0)) || any(pixel >= int2(view.size.xy)))
+        return false;
+    const float depth = gi_depth.Load(int3(pixel, 0));
+    if (rt_is_sky(depth))
+        return false;
+    const float z = rt_linear_z(depth, view);
+    if (abs(z - centre_z) > max(0.04f, centre_z * 0.025f))
+        return false;
+    const RtSurface surface = rt_surface(gi_position_buffer, gi_normal_buffer, pixel, view);
+    if (rt_is_hud(z, surface) || dot(surface.n_view, centre_n) < 0.4f)
+        return false;
+    p_view = rt_view_pos(float2(pixel) + 0.5f, z, view);
+    return true;
+}
+
+float3 gi_primary_face_normal(uint2 pixel, float z, float3 primary_view, float3 shading_view,
+    out bool valid)
+{
+    valid = false;
+    const int2 p = int2(pixel);
+    float3 right_p, left_p, down_p, up_p;
+    const bool right_ok = gi_neighbour_view(p + int2(1, 0), z, shading_view, right_p);
+    const bool left_ok  = gi_neighbour_view(p - int2(1, 0), z, shading_view, left_p);
+    const bool down_ok  = gi_neighbour_view(p + int2(0, 1), z, shading_view, down_p);
+    const bool up_ok    = gi_neighbour_view(p - int2(0, 1), z, shading_view, up_p);
+    if ((!right_ok && !left_ok) || (!down_ok && !up_ok))
+        return normalize(rt_dir_to_world(shading_view, view));
+
+    const float3 dx = right_ok && (!left_ok || abs(right_p.z - z) <= abs(left_p.z - z)) ?
+        right_p - primary_view : primary_view - left_p;
+    const float3 dy = down_ok && (!up_ok || abs(down_p.z - z) <= abs(up_p.z - z)) ?
+        down_p - primary_view : primary_view - up_p;
+    float3 face = cross(dx, dy);
+    if (dot(face, face) <= 1e-12f)
+        return normalize(rt_dir_to_world(shading_view, view));
+    face = normalize(face);
+    if (dot(face, -primary_view) < 0.0f)
+        face = -face;
+
+    // Reject a derivative spanning incompatible faces. Shading normals need
+    // not equal geometric normals (normal mapping), so keep this test lenient.
+    if (dot(face, shading_view) < 0.08f)
+        return normalize(rt_dir_to_world(shading_view, view));
+    valid = true;
+    return normalize(rt_dir_to_world(face, view));
+}
+
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID)
 {
@@ -226,7 +281,9 @@ void main(uint3 id : SV_DispatchThreadID)
     const float3 primary_view = float3(primary_z * (primary_xy * decompression.zw - decompression.xy), primary_z);
     const float3 origin = rt_to_world(primary_view, view);
     float3 normal = normalize(rt_dir_to_world(surface.n_view, view));
-    float3 geometric_normal = normal; // Primary G-buffer has no triangle face normal.
+    bool primary_face_valid = false;
+    float3 geometric_normal = (!hud && gi_count.z != 0u) ?
+        gi_primary_face_normal(pixel, primary_z, primary_view, surface.n_view, primary_face_valid) : normal;
     float3 bounce_position = origin;
     float3 throughput = 1.0f;
     float3 indirect = 0.0f;
@@ -244,12 +301,17 @@ void main(uint3 id : SV_DispatchThreadID)
     [loop] for (uint bounce = 0u; bounce < bounces; ++bounce)
     {
         float2 random_dir = float2(gi_random(seed), gi_random(seed));
-        const float3 direction = rt_cosine_dir(normal, random_dir);
+        // Sample the actual face hemisphere when a geometric normal is known.
+        // A ray sampled below the geometric surface can immediately hit its
+        // own triangle regardless of how far its origin is shifted.
+        const float3 sampling_normal = gi_count.z != 0u ? geometric_normal : normal;
+        const float3 direction = rt_cosine_dir(sampling_normal, random_dir);
         RayDesc ray;
         const bool first_bounce = bounce == 0u;
         const float3 bias_direction = first_bounce && gi_count.z != 0u ? toward_camera : geometric_normal;
         const float bias_distance = first_bounce && gi_count.z != 0u ? primary_bias : 0.002f;
-        ray.Origin = bounce_position + bias_direction * bias_distance + direction * 0.0005f;
+        const float3 face_extra = first_bounce && primary_face_valid ? geometric_normal * 0.001f : 0.0f;
+        ray.Origin = bounce_position + bias_direction * bias_distance + face_extra + direction * 0.0005f;
         ray.Direction = direction;
         ray.TMin = 0.001f;
         ray.TMax = gi_params.w;
