@@ -42,7 +42,7 @@ struct GiHit
     float t;
     uint instance_id, instance_index, geometry_index, primitive;
     float2 bary;
-    float3x4 o2w;
+    float3x4 o2w, w2o;
 };
 
 GiHit gi_trace(RayDesc ray, float cone)
@@ -69,20 +69,21 @@ GiHit gi_trace(RayDesc ray, float cone)
         hit.primitive = query.CommittedPrimitiveIndex();
         hit.bary = query.CommittedTriangleBarycentrics();
         hit.o2w = query.CommittedObjectToWorld3x4();
+        hit.w2o = query.CommittedWorldToObject3x4();
     }
     return hit;
 }
 
-bool gi_visible(float3 p, float3 n, float3 dir, float distance, float cone)
+// Visibility rays originate at a certified surface spawn point, not from a fixed
+// centimetre-scale n/dir bias. The light is not a triangle endpoint.
+bool gi_visible(float3 spawn, float3 dir, float distance, float cone)
 {
-    if (distance <= 0.006f)
+    if (distance <= 0.001f)
         return true;
     RayDesc ray;
-    // Use the geometric normal at traced hits. Centimetre-scale biases let rays
-    // pass through thin walls and wall/floor joins before testing for an occluder.
-    ray.Origin = p + n * 0.002f + dir * 0.0005f;
+    ray.Origin = spawn;
     ray.Direction = dir;
-    ray.TMin = 0.001f;
+    ray.TMin = 0.0f;
     ray.TMax = distance;
     RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
     query.TraceRayInline(rt_scene, RAY_FLAG_NONE, GI_MASK, ray);
@@ -125,11 +126,12 @@ float gi_light_attenuation(uint i, float3 surface_position, out float3 direction
 
 // Direct lighting at a SECONDARY hit only. The primary direct lights are already in the accumulator.
 // Sample one eligible local light using a CDF, and divide its contribution by its selection PDF.
-float3 gi_direct(float3 p, float3 n, float3 geometric_n, inout uint seed)
+float3 gi_direct(float3 p, float3 spawn, float3 n, float3 geometric_n, inout uint seed)
 {
     float3 E = 0.0f;
     const float ndotl = saturate(dot(n, view.sun.xyz));
-    if (ndotl > 0.0f && gi_visible(p, geometric_n, view.sun.xyz, 1000.0f, 0.004f))
+    if (ndotl > 0.0f && dot(geometric_n, view.sun.xyz) > 0.0f &&
+        gi_visible(spawn, view.sun.xyz, 1000.0f, 0.004f))
         E += max(shade.sun_color.rgb, 0.0f) * ndotl;
 
     const uint count = min(gi_count.x, (uint)GI_LIGHTS);
@@ -153,12 +155,12 @@ float3 gi_direct(float3 p, float3 n, float3 geometric_n, inout uint seed)
         float distance;
         const float att = gi_light_attenuation(i, p, d, distance);
         const float ndl = saturate(dot(n, d));
-        const float importance = att * ndl *
+        const float importance = (dot(geometric_n, d) > 0.0f ? att * ndl : 0.0f) *
             dot(max(gi_colour[i].rgb, 0.0f), float3(0.2126f, 0.7152f, 0.0722f));
         running += importance;
         if (importance > 0.0f && (running >= ticket || i + 1u == count))
         {
-            if (gi_visible(p, geometric_n, d, max(distance - 0.004f, 0.0f), 0.003f))
+            if (gi_visible(spawn, d, max(distance - 0.001f, 0.0f), 0.003f))
                 E += max(gi_colour[i].rgb, 0.0f) * (att * ndl * total / importance);
             break;
         }
@@ -177,107 +179,102 @@ float3 gi_sky(float3 direction)
              saturate(shade.env_color.w)) * 0.66f;
 }
 
-// Resolve a first-bounce self-hit against the actual RT triangle plane, not
-// the normal-mapped G-buffer normal. The TLAS may have a subtly different
-// surface from the raster depth due to floating-point precision, tessellation
-// and depth reconstruction. A small near hit on a co-planar, outward-facing
-// triangle should not absorb the entire indirect-light sample. Place the
-// origin just outside that triangle and retrace; do not skip all close hits,
-// since corners, thin walls and props must still produce contact shadows.
-// Returns false for genuine near geometry (different plane or orientation).
-bool gi_repair_primary_hit(inout RayDesc ray, GiHit hit, float3 primary_position,
-    float3 primary_face, float3 toward_camera, float primary_z)
+// NVIDIA, "Solving Self-Intersection Artifacts in DirectX Raytracing"
+// (2023), Listings 1-8. Reconstruct the exact DXR triangle hit in object
+// space, include reconstruction / transformation / traversal roundoff, and
+// offset along the true geometric normal. No ad hoc hit rejection or cm bias.
+// The c1 constant is tuned for NVIDIA RTX; verify on other GPU vendors.
+struct GiSpawn
 {
-    const float near_limit = max(0.04f, primary_z * 0.0005f);
-    if (hit.t <= 0.0f || hit.t >= near_limit)
+    float3 position;
+    float3 front;
+    float3 normal;
+};
+
+bool gi_spawn_from_hit(GiHit hit, RtTriangle tri, float3 incoming, out GiSpawn spawn)
+{
+    spawn = (GiSpawn)0;
+    const float3 v0 = tri.v0.position;
+    precise float3 edge1 = tri.v1.position - v0;
+    precise float3 edge2 = tri.v2.position - v0;
+    const float3 obj_normal = cross(edge1, edge2);
+    if (dot(obj_normal, obj_normal) < 1e-20f)
         return false;
-    const RtGeometry geo = rt_geometry_of(hit.instance_id, hit.geometry_index);
-    const RtTriangle tri = rt_fetch(geo, hit.primitive);
-    const float3 e1 = mul((float3x3)hit.o2w, tri.v1.position - tri.v0.position);
-    const float3 e2 = mul((float3x3)hit.o2w, tri.v2.position - tri.v0.position);
-    float3 face = cross(e1, e2);
-    const float face_len_sq = dot(face, face);
-    if (face_len_sq < 1e-10f)
+
+    // Add the base vertex last to bound object-space reconstruction error.
+    precise float3 obj_position = v0 + mad(hit.bary.x, edge1, hit.bary.y * edge2);
+
+    // DXR's ObjectToWorld3x4 uses column vectors. Add translation last.
+    precise float3 world_position;
+    world_position.x = hit.o2w._m03 +
+        mad(hit.o2w._m00, obj_position.x,
+        mad(hit.o2w._m01, obj_position.y, hit.o2w._m02 * obj_position.z));
+    world_position.y = hit.o2w._m13 +
+        mad(hit.o2w._m10, obj_position.x,
+        mad(hit.o2w._m11, obj_position.y, hit.o2w._m12 * obj_position.z));
+    world_position.z = hit.o2w._m23 +
+        mad(hit.o2w._m20, obj_position.x,
+        mad(hit.o2w._m21, obj_position.y, hit.o2w._m22 * obj_position.z));
+
+    // Inverse transpose is required for nonuniform scaling and shear.
+    float3 world_normal = mul(transpose((float3x3)hit.w2o), obj_normal);
+    const float normal_length_sq = dot(world_normal, world_normal);
+    if (normal_length_sq < 1e-20f)
         return false;
-    face *= rsqrt(face_len_sq);
-    // Both sides of static walls are traceable; orient the plane toward the
-    // camera independently of the triangle's index winding.
-    if (dot(face, toward_camera) < 0.0f)
-        face = -face;
-    if (dot(face, primary_face) < 0.55f || dot(face, ray.Direction) < 0.005f)
-        return false;
-    const float3 v0_world = mul(hit.o2w, float4(tri.v0.position, 1.0f));
-    const float primary_plane_distance = dot(primary_position - v0_world, face);
-    // A genuine adjacent triangle with a distinct plane remains an occluder.
-    const float plane_tolerance = max(0.025f, primary_z * 0.0003f);
-    if (abs(primary_plane_distance) > plane_tolerance)
-        return false;
-    // Bring the ray outside the exact plane used by the acceleration
-    // structure, including world-coordinate and triangle-size uncertainty.
-    const float world_extent = max(max(abs(v0_world.x), abs(v0_world.y)), abs(v0_world.z));
-    const float triangle_extent = max(length(e1), length(e2));
-    const float safe_gap = 0.003f + world_extent * 0.000001f + triangle_extent * 0.000002f;
-    const float distance_to_plane = dot(ray.Origin - v0_world, face);
-    const float advance = safe_gap - distance_to_plane;
-    if (advance <= 0.0f)
-        return false;
-    ray.Origin += face * advance;
+    const float world_scale = rsqrt(normal_length_sq);
+    world_normal *= world_scale;
+    if (dot(world_normal, incoming) > 0.0f)
+        world_normal = -world_normal;
+
+    const float c0 = 5.9604644775390625e-8f;
+    const float c1 = 1.7881397695873602e-7f;
+    const float c2 = 1.1920931797249068e-7f;
+
+    const float3 extent3 = abs(edge1) + abs(edge2) + abs(abs(edge1) - abs(edge2));
+    const float extent = max(max(extent3.x, extent3.y), extent3.z);
+    float3 obj_error = mad(c0, abs(v0), c1 * extent);
+    const float3 world_translation = float3(hit.o2w._m03, hit.o2w._m13, hit.o2w._m23);
+    const float3 world_error = mad(c1, mul(abs((float3x3)hit.o2w), abs(obj_position)),
+        c2 * abs(world_translation));
+    obj_error = mad(c2, mul(abs(hit.w2o), float4(abs(world_position), 1.0f)), obj_error);
+
+    const float offset = dot(obj_error, abs(obj_normal)) * world_scale +
+        dot(world_error, abs(world_normal));
+    spawn.position = world_position;
+    spawn.normal = world_normal;
+    spawn.front = mad(offset, world_normal, world_position);
     return true;
 }
 
-// Recover a primary geometric normal from the hardware depth surface rather
-// than relying on the G-buffer shading normal. The latter may be normal-mapped
-// or smoothly interpolated and can point below the triangle's actual plane.
-// Use one-sided screen derivatives with the closest compatible neighbour so
-// wall/floor and silhouette discontinuities are not mixed into the estimate.
-bool gi_neighbour_view(int2 pixel, float centre_z, float3 centre_n, out float3 p_view)
+// G-buffer pixels have neither primitive ID nor barycentrics. Recover them by
+// tracing backwards from the camera to the visible pixel's DXR triangle.
+// Reject nonmatching RT geometry, rather than misidentifying a nearby prop.
+// This incurs one additional inline ray query per non-HUD primary GI sample.
+bool gi_primary_spawn(float3 raster_position, float raster_z, float cone, out GiSpawn spawn)
 {
-    p_view = 0.0f;
-    if (any(pixel < int2(0, 0)) || any(pixel >= int2(view.size.xy)))
+    spawn = (GiSpawn)0;
+    const float3 from_camera = raster_position - view.camera.xyz;
+    const float camera_distance = length(from_camera);
+    if (camera_distance < 0.002f)
         return false;
-    const float depth = gi_depth.Load(int3(pixel, 0));
-    if (rt_is_sky(depth))
+
+    RayDesc ray;
+    ray.Origin = view.camera.xyz;
+    ray.Direction = from_camera / camera_distance;
+    ray.TMin = 0.0f;
+    ray.TMax = camera_distance + max(0.005f, rt_pixel_size(raster_z, view));
+    const GiHit hit = gi_trace(ray, cone);
+    if (hit.t < 0.0f)
         return false;
-    const float z = rt_linear_z(depth, view);
-    if (abs(z - centre_z) > max(0.04f, centre_z * 0.025f))
+    const RtGeometry geometry = rt_geometry_of(hit.instance_id, hit.geometry_index);
+    const RtTriangle tri = rt_fetch(geometry, hit.primitive);
+    if (!gi_spawn_from_hit(hit, tri, ray.Direction, spawn))
         return false;
-    const RtSurface surface = rt_surface(gi_position_buffer, gi_normal_buffer, pixel, view);
-    if (rt_is_hud(z, surface) || dot(surface.n_view, centre_n) < 0.4f)
+
+    const float hit_z = rt_dir_to_view(spawn.position - view.camera.xyz, view).z;
+    if (abs(hit_z - raster_z) > max(0.008f, raster_z * 0.0007f))
         return false;
-    p_view = rt_view_pos(float2(pixel) + 0.5f, z, view);
     return true;
-}
-
-float3 gi_primary_face_normal(uint2 pixel, float z, float3 primary_view, float3 shading_view,
-    out bool valid)
-{
-    valid = false;
-    const int2 p = int2(pixel);
-    float3 right_p, left_p, down_p, up_p;
-    const bool right_ok = gi_neighbour_view(p + int2(1, 0), z, shading_view, right_p);
-    const bool left_ok  = gi_neighbour_view(p - int2(1, 0), z, shading_view, left_p);
-    const bool down_ok  = gi_neighbour_view(p + int2(0, 1), z, shading_view, down_p);
-    const bool up_ok    = gi_neighbour_view(p - int2(0, 1), z, shading_view, up_p);
-    if ((!right_ok && !left_ok) || (!down_ok && !up_ok))
-        return normalize(rt_dir_to_world(shading_view, view));
-
-    const float3 dx = right_ok && (!left_ok || abs(right_p.z - z) <= abs(left_p.z - z)) ?
-        right_p - primary_view : primary_view - left_p;
-    const float3 dy = down_ok && (!up_ok || abs(down_p.z - z) <= abs(up_p.z - z)) ?
-        down_p - primary_view : primary_view - up_p;
-    float3 face = cross(dx, dy);
-    if (dot(face, face) <= 1e-12f)
-        return normalize(rt_dir_to_world(shading_view, view));
-    face = normalize(face);
-    if (dot(face, -primary_view) < 0.0f)
-        face = -face;
-
-    // Reject a derivative spanning incompatible faces. Shading normals need
-    // not equal geometric normals (normal mapping), so keep this test lenient.
-    if (dot(face, shading_view) < 0.08f)
-        return normalize(rt_dir_to_world(shading_view, view));
-    valid = true;
-    return normalize(rt_dir_to_world(face, view));
 }
 
 [numthreads(8, 8, 1)]
@@ -329,53 +326,42 @@ void main(uint3 id : SV_DispatchThreadID)
     const float3 primary_view = float3(primary_z * (primary_xy * decompression.zw - decompression.xy), primary_z);
     const float3 origin = rt_to_world(primary_view, view);
     float3 normal = normalize(rt_dir_to_world(surface.n_view, view));
-    bool primary_face_valid = false;
-    float3 geometric_normal = (!hud && gi_count.z != 0u) ?
-        gi_primary_face_normal(pixel, primary_z, primary_view, surface.n_view, primary_face_valid) : normal;
-    float3 bounce_position = origin;
-    float3 throughput = 1.0f;
-    float3 indirect = 0.0f;
-    float cone = rt_pixel_size(primary_z, view) * (hud ? abs(gi_hud_decompress.w / view.pos_decompress.w) : 1.0f);
+    float cone = rt_pixel_size(primary_z, view) *
+        (hud ? abs(gi_hud_decompress.w / view.pos_decompress.w) : 1.0f);
     uint seed = pixel.x * 1973u ^ pixel.y * 9277u ^ view.scene.w * 26699u ^ 0x68bc21ebu;
     const uint bounces = clamp((uint)gi_params.z, 1u, 5u);
-    // G-buffer normals are shading normals and may be normal-mapped. They are
-    // unsuitable for moving the first ray out of the actual triangle surface.
-    // The visible surface is guaranteed to be on the camera-facing side of its
-    // primary triangle. A small camera-side offset avoids entering that triangle
-    // even where the shading normal points below the true geometric surface.
-    const float primary_bias = clamp(primary_z * 0.0003f, 0.003f, 0.025f);
     const float3 toward_camera = normalize(view.camera.xyz - origin);
+    GiSpawn primary_spawn = (GiSpawn)0;
+    const bool primary_matched = !hud && gi_count.z != 0u &&
+        gi_primary_spawn(origin, primary_z, cone, primary_spawn);
+    float3 geometric_normal = primary_matched ? primary_spawn.normal : normal;
+    float3 bounce_position = origin;
+    // HUD geometry and unmatched raster surfaces have no matching DXR triangle.
+    // This explicit fallback is NOT the NVIDIA-certified path.
+    const float coord = max(max(abs(origin.x), abs(origin.y)), abs(origin.z));
+    const float fallback_offset = max(0.001f, coord * 2.5e-7f);
+    float3 bounce_front = primary_matched ? primary_spawn.front :
+        origin + toward_camera * fallback_offset;
+    float3 throughput = 1.0f;
+    float3 indirect = 0.0f;
 
     [loop] for (uint bounce = 0u; bounce < bounces; ++bounce)
     {
         float2 random_dir = float2(gi_random(seed), gi_random(seed));
-        // Sample the actual face hemisphere when a geometric normal is known.
-        // A ray sampled below the geometric surface can immediately hit its
-        // own triangle regardless of how far its origin is shifted.
-        const float3 sampling_normal = gi_count.z != 0u ? geometric_normal : normal;
-        const float3 direction = rt_cosine_dir(sampling_normal, random_dir);
+        // Retain the shading-normal detail where possible. Never emit rays
+        // through the true triangle plane (NVIDIA's grazing-angle caveat).
+        float3 direction = rt_cosine_dir(normal, random_dir);
+        if (dot(direction, geometric_normal) <= 0.0f)
+            direction = rt_cosine_dir(geometric_normal, float2(gi_random(seed), gi_random(seed)));
         RayDesc ray;
         const bool first_bounce = bounce == 0u;
-        const float3 bias_direction = first_bounce && gi_count.z != 0u ? toward_camera : geometric_normal;
-        const float bias_distance = first_bounce && gi_count.z != 0u ? primary_bias : 0.002f;
-        const float3 face_extra = first_bounce && primary_face_valid ? geometric_normal * 0.001f : 0.0f;
-        ray.Origin = bounce_position + bias_direction * bias_distance + face_extra + direction * 0.0005f;
+        // Mode 0 is a diagnostic A/B of the legacy primary offset.
+        ray.Origin = first_bounce && gi_count.z == 0u ?
+            origin + normal * 0.002f + direction * 0.0005f : bounce_front;
         ray.Direction = direction;
-        ray.TMin = 0.001f;
+        ray.TMin = first_bounce && gi_count.z == 0u ? 0.001f : 0.0f;
         ray.TMax = gi_params.w;
-        GiHit hit = gi_trace(ray, cone);
-        if (first_bounce && gi_count.z != 0u)
-        {
-            // Retry at most twice to handle overlapping/coplanar faces. This
-            // path is taken only for close hits that match the primary plane;
-            // normal ray paths and all subsequent GI bounces are unchanged.
-            [loop] for (uint repair = 0u; repair < 2u; ++repair)
-            {
-                if (!gi_repair_primary_hit(ray, hit, origin, geometric_normal, toward_camera, primary_z))
-                    break;
-                hit = gi_trace(ray, cone);
-            }
-        }
+        const GiHit hit = gi_trace(ray, cone);
         // First-ray intersection diagnostic, shown by r__rt_debug 10.
         // Red: very close hit (possible self-intersection); green: sky miss;
         // blue: more distant scene hit. Red alone is not proof of a bad hit
@@ -400,21 +386,26 @@ void main(uint3 id : SV_DispatchThreadID)
         const RtHitSurface surface_hit = rt_hit_surface(geometry, instance, hit_triangle, hit.bary, hit.o2w,
             direction, cone + 0.001f * hit.t, view);
         normal = normalize(surface_hit.normal);
-        // Derive the geometric face normal locally instead of depending on an
-        // extended RtHitSurface layout. Some installations retain an older
-        // rt_material.hlsli alongside the updated GI shader.
-        const float3 face = cross(
-            mul((float3x3)hit.o2w, hit_triangle.v1.position - hit_triangle.v0.position),
-            mul((float3x3)hit.o2w, hit_triangle.v2.position - hit_triangle.v0.position));
-        geometric_normal = dot(face, face) > 1e-8f ? normalize(face) : normal;
-        if (dot(geometric_normal, direction) > 0.0f)
-            geometric_normal = -geometric_normal;
+        // Secondary and shadow rays share the exact error-bounded spawn point.
+        GiSpawn next_spawn;
+        if (gi_spawn_from_hit(hit, hit_triangle, direction, next_spawn))
+        {
+            bounce_position = next_spawn.position;
+            bounce_front = next_spawn.front;
+            geometric_normal = next_spawn.normal;
+        }
+        else
+        {
+            // Degenerate triangle: conservative fallback only.
+            geometric_normal = normal;
+            bounce_front = bounce_position + geometric_normal * 0.001f;
+        }
         const float3 albedo = saturate(surface_hit.albedo);
         if (surface_hit.emissive)
             indirect += throughput * albedo;
         // For cosine-hemisphere sampling, f*cos(theta)/pdf = albedo.
         throughput *= albedo;
-        indirect += throughput * gi_direct(bounce_position, normal, geometric_normal, seed);
+        indirect += throughput * gi_direct(bounce_position, bounce_front, normal, geometric_normal, seed);
         cone += 0.002f * hit.t;
 
         // Russian roulette after the second bounce: divide by survival probability.
