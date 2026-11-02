@@ -12,7 +12,7 @@ cbuffer rt_gi_constants : register(b0)
     RtView view;
     RtShade shade;
     float4 gi_params; // xy trace size, z bounce limit, w maximum path distance (metres)
-    uint4 gi_count;  // x selected local lights
+    uint4 gi_count;  // x selected local lights, y first-ray diagnostic, z camera-side primary bias
     float4 gi_position[GI_LIGHTS];  // xyz world position, w = reciprocal squared range
     float4 gi_colour[GI_LIGHTS];    // rgb intensity, w = spotlight half-cone cosine (-2 for point)
     float4 gi_direction[GI_LIGHTS]; // xyz direction from spotlight
@@ -233,17 +233,39 @@ void main(uint3 id : SV_DispatchThreadID)
     float cone = rt_pixel_size(primary_z, view) * (hud ? abs(gi_hud_decompress.w / view.pos_decompress.w) : 1.0f);
     uint seed = pixel.x * 1973u ^ pixel.y * 9277u ^ view.scene.w * 26699u ^ 0x68bc21ebu;
     const uint bounces = clamp((uint)gi_params.z, 1u, 5u);
+    // G-buffer normals are shading normals and may be normal-mapped. They are
+    // unsuitable for moving the first ray out of the actual triangle surface.
+    // The visible surface is guaranteed to be on the camera-facing side of its
+    // primary triangle. A small camera-side offset avoids entering that triangle
+    // even where the shading normal points below the true geometric surface.
+    const float primary_bias = clamp(primary_z * 0.0003f, 0.003f, 0.025f);
+    const float3 toward_camera = normalize(view.camera.xyz - origin);
 
     [loop] for (uint bounce = 0u; bounce < bounces; ++bounce)
     {
         float2 random_dir = float2(gi_random(seed), gi_random(seed));
         const float3 direction = rt_cosine_dir(normal, random_dir);
         RayDesc ray;
-        ray.Origin = bounce_position + geometric_normal * 0.002f + direction * 0.0005f;
+        const bool first_bounce = bounce == 0u;
+        const float3 bias_direction = first_bounce && gi_count.z != 0u ? toward_camera : geometric_normal;
+        const float bias_distance = first_bounce && gi_count.z != 0u ? primary_bias : 0.002f;
+        ray.Origin = bounce_position + bias_direction * bias_distance + direction * 0.0005f;
         ray.Direction = direction;
         ray.TMin = 0.001f;
         ray.TMax = gi_params.w;
         const GiHit hit = gi_trace(ray, cone);
+        // First-ray intersection diagnostic, shown by r__rt_debug 10.
+        // Red: very close hit (possible self-intersection); green: sky miss;
+        // blue: more distant scene hit. Red alone is not proof of a bad hit
+        // because legitimate adjacent geometry may also be very close.
+        if (first_bounce && gi_count.y != 0u)
+        {
+            const float near_limit = max(0.04f, 0.0005f * primary_z);
+            const float3 classification = hit.t < 0.0f ? float3(0.0f, 1.0f, 0.0f) :
+                hit.t < near_limit ? float3(1.0f, 0.0f, 0.0f) : float3(0.0f, 0.2f, 1.0f);
+            gi_raw[id.xy] = float4(classification, primary_z);
+            return;
+        }
         if (hit.t < 0.0f)
         {
             indirect += throughput * gi_sky(direction);

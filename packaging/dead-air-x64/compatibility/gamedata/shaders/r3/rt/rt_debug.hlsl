@@ -3,7 +3,8 @@
 // what proves the vertex and texture decode of the hit shading, 5 the glossy surfaces' reflections
 // (tonemapped; where the sky's cube stays, dark blue); 6 final filtered GI,
 // 7 raw traced GI (no denoising), 8 temporally accumulated GI (before spatial filtering),
-// 9 dynamic-only TLAS geometry test (red = rigid, cyan = skinned).
+// 9 dynamic-only TLAS geometry test (red = rigid, cyan = skinned),
+// 10 first GI ray class: red = near hit, green = miss, blue = farther scene hit.
 
 #include "rt_geometry.hlsli"
 
@@ -121,6 +122,12 @@ void main( uint3 id : SV_DispatchThreadID )
 	{
 		const float3 gi = max( dbg_gi_temporal.Load( int3( id.xy, 0 ) ).rgb, 0.0f );
 		c = gi / ( 1.0f + gi );
+		break;
+	}
+	case 10u:
+	{
+		const uint2 t = min( uint2( ( float2( id.xy ) + 0.5f ) * float2( debug.yz ) / view.size.xy ), debug.yz - 1u );
+		c = saturate( dbg_gi_raw.Load( int3( t, 0 ) ).rgb );
 		break;
 	}
 	case 9u:

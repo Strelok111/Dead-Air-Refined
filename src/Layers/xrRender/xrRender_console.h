@@ -253,6 +253,7 @@ extern ECORE_API const xr_token qrt_quality_token[];
 extern ECORE_API int ps_r__rt_debug;
 extern ECORE_API int ps_r__rt_dynamic; // DX12 diagnostic: 0 use only static TLAS instances
 extern ECORE_API int ps_r__rt_skinned; // DX12 diagnostic: 0 omit deformed NPC meshes; leave rigid props
+extern ECORE_API int ps_r__rtgi_primary_bias; // DX12 diagnostic: camera-side ray start vs prior shading-normal bias
 // [dx12:rt] end variables
 
 extern ECORE_API int ps_r__grass_shadow_fade;

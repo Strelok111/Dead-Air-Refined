@@ -292,7 +292,8 @@ void da_rt_debug_pass(CBackend& cmd_list, CRenderTarget& t, DaRtTargets& rt)
         return;
     // The dynamic geometry diagnostic (9) is independent of GI; don't hide it
     // when the GI pipeline is unavailable or its trace failed this frame.
-    if (ps_r__rt_debug >= 6 && ps_r__rt_debug <= 8 && (!rt.gi || rt.gi_frame != Device.dwFrame))
+    if (((ps_r__rt_debug >= 6 && ps_r__rt_debug <= 8) || ps_r__rt_debug == 10) &&
+        (!rt.gi || rt.gi_frame != Device.dwFrame))
         return;
     if (!rt.debug)
         rt.debug.create("$user$rt_debug", rt.width, rt.height, D3DFMT_A16B16G16R16F, 1, {CRT::CreateUAV});
@@ -677,6 +678,8 @@ void da_rt_gi_pass(CBackend& cmd_list)
     trace.params.set(float(rt->gi_width), float(rt->gi_height), float(quality == 0 ? 2 : quality == 1 ? 3 : 4),
         quality == 2 ? 500.f : 300.f);
     trace.light_count[0] = g_gi_lights.count;
+    trace.light_count[1] = ps_r__rt_debug == 10 ? 1u : 0u;
+    trace.light_count[2] = ps_r__rtgi_primary_bias != 0 ? 1u : 0u;
     trace.falloff.set(ps_r__light_falloff, ps_r__light_falloff_core, ps_r__light_falloff_gain, 0.f);
     trace.hud_decompress = da_pos_decompress(psHUD_FOV * Device.fFOV);
     for (u32 i = 0; i < g_gi_lights.count; ++i)
