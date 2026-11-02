@@ -177,6 +177,54 @@ float3 gi_sky(float3 direction)
              saturate(shade.env_color.w)) * 0.66f;
 }
 
+// Resolve a first-bounce self-hit against the actual RT triangle plane, not
+// the normal-mapped G-buffer normal. The TLAS may have a subtly different
+// surface from the raster depth due to floating-point precision, tessellation
+// and depth reconstruction. A small near hit on a co-planar, outward-facing
+// triangle should not absorb the entire indirect-light sample. Place the
+// origin just outside that triangle and retrace; do not skip all close hits,
+// since corners, thin walls and props must still produce contact shadows.
+// Returns false for genuine near geometry (different plane or orientation).
+bool gi_repair_primary_hit(inout RayDesc ray, GiHit hit, float3 primary_position,
+    float3 primary_face, float3 toward_camera, float primary_z)
+{
+    const float near_limit = max(0.04f, primary_z * 0.0005f);
+    if (hit.t <= 0.0f || hit.t >= near_limit)
+        return false;
+    const RtGeometry geo = rt_geometry_of(hit.instance_id, hit.geometry_index);
+    const RtTriangle tri = rt_fetch(geo, hit.primitive);
+    const float3 e1 = mul((float3x3)hit.o2w, tri.v1.position - tri.v0.position);
+    const float3 e2 = mul((float3x3)hit.o2w, tri.v2.position - tri.v0.position);
+    float3 face = cross(e1, e2);
+    const float face_len_sq = dot(face, face);
+    if (face_len_sq < 1e-10f)
+        return false;
+    face *= rsqrt(face_len_sq);
+    // Both sides of static walls are traceable; orient the plane toward the
+    // camera independently of the triangle's index winding.
+    if (dot(face, toward_camera) < 0.0f)
+        face = -face;
+    if (dot(face, primary_face) < 0.55f || dot(face, ray.Direction) < 0.005f)
+        return false;
+    const float3 v0_world = mul(hit.o2w, float4(tri.v0.position, 1.0f));
+    const float primary_plane_distance = dot(primary_position - v0_world, face);
+    // A genuine adjacent triangle with a distinct plane remains an occluder.
+    const float plane_tolerance = max(0.025f, primary_z * 0.0003f);
+    if (abs(primary_plane_distance) > plane_tolerance)
+        return false;
+    // Bring the ray outside the exact plane used by the acceleration
+    // structure, including world-coordinate and triangle-size uncertainty.
+    const float world_extent = max(max(abs(v0_world.x), abs(v0_world.y)), abs(v0_world.z));
+    const float triangle_extent = max(length(e1), length(e2));
+    const float safe_gap = 0.003f + world_extent * 0.000001f + triangle_extent * 0.000002f;
+    const float distance_to_plane = dot(ray.Origin - v0_world, face);
+    const float advance = safe_gap - distance_to_plane;
+    if (advance <= 0.0f)
+        return false;
+    ray.Origin += face * advance;
+    return true;
+}
+
 // Recover a primary geometric normal from the hardware depth surface rather
 // than relying on the G-buffer shading normal. The latter may be normal-mapped
 // or smoothly interpolated and can point below the triangle's actual plane.
@@ -315,7 +363,19 @@ void main(uint3 id : SV_DispatchThreadID)
         ray.Direction = direction;
         ray.TMin = 0.001f;
         ray.TMax = gi_params.w;
-        const GiHit hit = gi_trace(ray, cone);
+        GiHit hit = gi_trace(ray, cone);
+        if (first_bounce && gi_count.z != 0u)
+        {
+            // Retry at most twice to handle overlapping/coplanar faces. This
+            // path is taken only for close hits that match the primary plane;
+            // normal ray paths and all subsequent GI bounces are unchanged.
+            [loop] for (uint repair = 0u; repair < 2u; ++repair)
+            {
+                if (!gi_repair_primary_hit(ray, hit, origin, geometric_normal, toward_camera, primary_z))
+                    break;
+                hit = gi_trace(ray, cone);
+            }
+        }
         // First-ray intersection diagnostic, shown by r__rt_debug 10.
         // Red: very close hit (possible self-intersection); green: sky miss;
         // blue: more distant scene hit. Red alone is not proof of a bad hit
